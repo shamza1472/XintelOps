@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XIntelOps — Intelligence Dashboard</title>
+<style>
+  :root {
+    --bg-primary: #0a0c0f;
+    --bg-secondary: #0f1318;
+    --bg-card: #13181f;
+    --bg-card-hover: #161c25;
+    --border: #1e2733;
+    --border-accent: #1f3a5c;
+    --accent-blue: #2a6fdb;
+    --accent-blue-dim: #1a3d6e;
+    --accent-green: #1a8a5a;
+    --accent-green-bright: #22c97a;
+    --accent-amber: #b87a00;
+    --accent-amber-bright: #f5a623;
+    --accent-red: #8a1a1a;
+    --accent-red-bright: #e05252;
+    --text-primary: #e8edf2;
+    --text-secondary: #8a9ab0;
+    --text-muted: #4a5a6e;
+    --text-accent: #4da6ff;
+    --mono: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    --sans: -apple-system, 'Inter', 'Helvetica Neue', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── LAYOUT ── */
+  .shell {
+    display: grid;
+    grid-template-columns: 52px 220px 1fr 300px;
+    grid-template-rows: 48px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    grid-column: 1 / -1;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    z-index: 10;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+  }
+
+  .logo-mark {
+    width: 22px;
+    height: 22px;
+    background: var(--accent-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 900;
+    color: white;
+    clip-path: polygon(0 0, 85% 0, 100% 15%, 100% 100%, 15% 100%, 0 85%);
+  }
+
+  .topbar-divider { width: 1px; height: 20px; background: var(--border); }
+
+  .topbar-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent-green-bright);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .topbar-date {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+
+  .topbar-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent-blue-dim);
+    border: 1px solid var(--accent-blue);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: var(--text-accent);
+  }
+
+  /* ── ICON RAIL ── */
+  .icon-rail {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 0;
+    gap: 4px;
+  }
+
+  .rail-icon {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 15px;
+    transition: all 0.15s;
+  }
+
+  .rail-icon:hover { background: var(--bg-card); color: var(--text-secondary); }
+  .rail-icon.active { background: var(--accent-blue-dim); color: var(--text-accent); }
+  .rail-spacer { flex: 1; }
+
+  /* ── LEFT PANEL ── */
+  .left-panel {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-section {
+    padding: 16px 14px 8px;
+  }
+
+  .panel-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    transition: all 0.12s;
+    margin-bottom: 1px;
+  }
+
+  .nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+  .nav-item.active { background: var(--accent-blue-dim); color: var(--text-accent); }
+
+  .nav-icon { width: 14px; text-align: center; font-size: 12px; }
+
+  .nav-badge {
+    margin-left: auto;
+    background: var(--accent-blue);
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--mono);
+  }
+
+  .confidence-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 10px 8px;
+    overflow: hidden;
+  }
+  .confidence-fill { height: 100%; border-radius: 2px; }
+
+  /* ── MAIN AREA ── */
+  .main {
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .main-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .page-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  .page-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-family: var(--mono);
+  }
+
+  .btn {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+    transition: all 0.12s;
+  }
+
+  .btn-primary { background: var(--accent-blue); color: white; }
+  .btn-primary:hover { background: #3a7ff0; }
+  .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+
+  .card-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .card-title-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── SIGNAL ITEMS ── */
+  .signal-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .signal-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.12s;
+    position: relative;
+  }
+
+  .signal-item:hover { border-color: var(--border-accent); background: var(--bg-card-hover); }
+  .signal-item.active { border-color: var(--accent-blue); border-left: 3px solid var(--accent-blue); }
+
+  .signal-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .tag {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-family: var(--mono);
+  }
+
+  .tag-crisis { background: rgba(224,82,82,0.15); color: var(--accent-red-bright); border: 1px solid rgba(224,82,82,0.3); }
+  .tag-high { background: rgba(42,111,219,0.15); color: var(--text-accent); border: 1px solid rgba(42,111,219,0.3); }
+  .tag-medium { background: rgba(245,166,35,0.1); color: var(--accent-amber-bright); border: 1px solid rgba(245,166,35,0.25); }
+  .tag-domain { background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--border); }
+
+  .signal-time {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+
+  .signal-headline {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+
+  .signal-source {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+
+  .signal-source span { color: var(--text-secondary); }
+
+  /* ── PIPELINE STAGES ── */
+  .pipeline-track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 16px;
+  }
+
+  .stage-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    font-family: var(--mono);
+  }
+
+  .stage-node.done { background: rgba(34,201,122,0.1); color: var(--accent-green-bright); }
+  .stage-node.active { background: rgba(42,111,219,0.2); color: var(--text-accent); border: 1px solid var(--accent-blue); }
+  .stage-node.pending { color: var(--text-muted); }
+
+  .stage-arrow { color: var(--text-muted); padding: 0 4px; font-size: 10px; }
+
+  /* ── OUTPUT PANEL ── */
+  .output-block {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+
+  .output-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.02);
+  }
+
+  .output-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .output-platform {
+    font-size: 9px;
+    color: var(--text-accent);
+    font-family: var(--mono);
+    margin-left: auto;
+  }
+
+  .output-body {
+    padding: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  .output-body strong { color: var(--text-primary); }
+
+  .copy-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+  }
+
+  .copy-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
+  /* ── METRICS ROW ── */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .metric-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px 14px;
+  }
+
+  .metric-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+  }
+
+  .metric-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    letter-spacing: -0.02em;
+  }
+
+  .metric-delta {
+    font-size: 10px;
+    margin-top: 3px;
+    font-family: var(--mono);
+  }
+
+  .delta-up { color: var(--accent-green-bright); }
+  .delta-down { color: var(--accent-red-bright); }
+
+  /* ── RIGHT PANEL ── */
+  .right-panel {
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .rp-section-title {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── SCHEDULE LIST ── */
+  .schedule-item {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    position: relative;
+  }
+
+  .schedule-item::before {
+    content: '';
+    position: absolute;
+    left: 20px;
+    top: 28px;
+    bottom: -12px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .schedule-item:last-child::before { display: none; }
+
+  .sched-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    min-width: 40px;
+    padding-top: 2px;
+  }
+
+  .sched-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+
+  .dot-done { background: var(--accent-green-bright); }
+  .dot-active { background: var(--accent-blue); box-shadow: 0 0 0 3px rgba(42,111,219,0.2); }
+  .dot-pending { background: var(--border); border: 1px solid var(--text-muted); background: transparent; }
+
+  .sched-content { flex: 1; }
+
+  .sched-type {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .sched-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* ── JOURNALIST CARD ── */
+  .journalist-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+
+  .journalist-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .journalist-handle {
+    font-size: 10px;
+    color: var(--text-accent);
+    font-family: var(--mono);
+    margin-bottom: 6px;
+  }
+
+  .journalist-post {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    padding: 7px 9px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border-left: 2px solid var(--accent-blue);
+    margin-bottom: 8px;
+  }
+
+  .journalist-comment-draft {
+    font-size: 11px;
+    color: var(--accent-green-bright);
+    line-height: 1.5;
+    padding: 7px 9px;
+    background: rgba(34,201,122,0.05);
+    border-radius: 4px;
+    border: 1px solid rgba(34,201,122,0.15);
+  }
+
+  /* ── SOURCE MONITOR ── */
+  .source-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+
+  .source-row:last-child { border-bottom: none; }
+
+  .source-indicator {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .ind-live { background: var(--accent-green-bright); }
+  .ind-idle { background: var(--text-muted); }
+  .ind-alert { background: var(--accent-amber-bright); }
+
+  .source-name { color: var(--text-secondary); flex: 1; }
+  .source-count { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+  /* ── CONFIDENCE BADGE ── */
+  .conf-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--mono);
+    letter-spacing: 0.06em;
+  }
+
+  .conf-high { background: rgba(42,111,219,0.15); color: var(--text-accent); }
+  .conf-medium { background: rgba(245,166,35,0.12); color: var(--accent-amber-bright); }
+  .conf-crisis { background: rgba(224,82,82,0.15); color: var(--accent-red-bright); }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .section-row { display: flex; gap: 16px; }
+  .section-col { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .section-col-wide { flex: 1.5; display: flex; flex-direction: column; gap: 10px; }
+
+  .verified-fact {
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+
+  .fact-check { color: var(--accent-green-bright); flex-shrink: 0; }
+  .fact-x { color: var(--accent-red-bright); flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-mark">X</div>
+      XINTELOPS
+    </div>
+    <div class="topbar-divider"></div>
+    <div class="topbar-status">
+      <div class="status-dot"></div>
+      PIPELINE ACTIVE
+    </div>
+    <div class="topbar-divider"></div>
+    <div class="topbar-status" style="color: var(--text-muted);">
+      SIGNALS TODAY: <span style="color: var(--text-accent); margin-left:4px;">14</span>
+    </div>
+    <div class="topbar-divider"></div>
+    <div class="topbar-status" style="color: var(--text-muted);">
+      VERIFIED: <span style="color: var(--accent-green-bright); margin-left:4px;">9</span>
+    </div>
+    <div class="topbar-divider"></div>
+    <div class="topbar-status" style="color: var(--text-muted);">
+      BLOCKED: <span style="color: var(--accent-red-bright); margin-left:4px;">5</span>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-date">2026-03-20 · 07:42 UTC</div>
+      <div class="topbar-avatar">H</div>
+    </div>
+  </header>
+
+  <!-- ICON RAIL -->
+  <nav class="icon-rail">
+    <div class="rail-icon active" title="Intelligence Feed">⬡</div>
+    <div class="rail-icon" title="Pipeline">◈</div>
+    <div class="rail-icon" title="Publishing">◳</div>
+    <div class="rail-icon" title="Sources">◉</div>
+    <div class="rail-icon" title="Journalists">◎</div>
+    <div class="rail-spacer"></div>
+    <div class="rail-icon" title="Settings">⊕</div>
+  </nav>
+
+  <!-- LEFT PANEL -->
+  <nav class="left-panel">
+    <div class="panel-section">
+      <div class="panel-label">Intelligence Feed</div>
+      <div class="nav-item active">
+        <span class="nav-icon">◈</span>
+        All Signals
+        <span class="nav-badge">14</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⬥</span>
+        Crisis Mode
+        <span class="nav-badge" style="background: var(--accent-red-bright);">2</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">◇</span>
+        High Confidence
+        <span class="nav-badge">5</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">△</span>
+        Blocked
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Domains</div>
+      <div class="nav-item">
+        <span class="nav-icon">⛵</span>
+        Maritime Risk
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">✈</span>
+        Airspace
+        <span class="nav-badge">1</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⚔</span>
+        Ground Conflict
+        <span class="nav-badge">4</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⚡</span>
+        Cyber Activity
+        <span class="nav-badge">1</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">◉</span>
+        Diplomatic Signal
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">$</span>
+        Financial / Econ
+        <span class="nav-badge">2</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Publishing</div>
+      <div class="nav-item">
+        <span class="nav-icon">✕</span>
+        Today's X Plan
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">in</span>
+        LinkedIn Draft
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">✎</span>
+        Journalist Comment
+      </div>
+    </div>
+
+    <div class="panel-section" style="margin-top: auto;">
+      <div class="panel-label">Pipeline Health</div>
+      <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-family: var(--mono);">VERIFICATION PASS RATE</div>
+      <div class="confidence-bar">
+        <div class="confidence-fill" style="width: 64%; background: var(--accent-blue);"></div>
+      </div>
+      <div style="font-size: 10px; font-family: var(--mono); color: var(--text-accent); text-align: right;">64%</div>
+    </div>
+  </nav>
+
+  <!-- MAIN AREA -->
+  <main class="main">
+
+    <!-- Metrics -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-label">Signals Scanned</div>
+        <div class="metric-value">14</div>
+        <div class="metric-delta delta-up">↑ 3 vs yesterday</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Posts Published</div>
+        <div class="metric-value">3</div>
+        <div class="metric-delta" style="color: var(--text-muted);">X: 2 · LI: 1</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Crisis Flags</div>
+        <div class="metric-value" style="color: var(--accent-red-bright);">2</div>
+        <div class="metric-delta" style="color: var(--text-muted);">Red Sea · Ukraine</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Avg Confidence</div>
+        <div class="metric-value" style="color: var(--text-accent);">M</div>
+        <div class="metric-delta" style="color: var(--text-muted);">MEDIUM</div>
+      </div>
+    </div>
+
+    <!-- Active Signal + Pipeline -->
+    <div class="section-row">
+      <div class="section-col">
+        <div class="card">
+          <div class="card-title">Signal Queue <div class="card-title-line"></div></div>
+          <div class="signal-list">
+
+            <div class="signal-item active">
+              <div class="signal-meta">
+                <span class="tag tag-crisis">CRISIS</span>
+                <span class="tag tag-domain">Maritime Risk</span>
+                <span class="signal-time">07:14 UTC</span>
+              </div>
+              <div class="signal-headline">Houthi forces claim drone strike on commercial vessel in Red Sea corridor; AIS data shows vessel deviation</div>
+              <div class="signal-source">Source: <span>Reuters · MarineTraffic</span> · Confidence: HIGH</div>
+            </div>
+
+            <div class="signal-item">
+              <div class="signal-meta">
+                <span class="tag tag-high">HIGH</span>
+                <span class="tag tag-domain">Diplomatic Signal</span>
+                <span class="signal-time">06:52 UTC</span>
+              </div>
+              <div class="signal-headline">U.S. State Department issues formal demarche to Beijing over Taiwan Strait transit; PRC MFA response pending</div>
+              <div class="signal-source">Source: <span>AP · US DoD</span> · Confidence: HIGH</div>
+            </div>
+
+            <div class="signal-item">
+              <div class="signal-meta">
+                <span class="tag tag-medium">MEDIUM</span>
+                <span class="tag tag-domain">Ground Conflict</span>
+                <span class="signal-time">05:30 UTC</span>
+              </div>
+              <div class="signal-headline">Ukrainian drone strikes reported near Kursk Oblast logistics hub; confirmation pending from MoD</div>
+              <div class="signal-source">Source: <span>r/UkrainianConflict · DW</span> · Confidence: MEDIUM</div>
+            </div>
+
+            <div class="signal-item">
+              <div class="signal-meta">
+                <span class="tag tag-medium">MEDIUM</span>
+                <span class="tag tag-domain">Financial / Econ</span>
+                <span class="signal-time">04:10 UTC</span>
+              </div>
+              <div class="signal-headline">OFAC adds 3 entities to SDN list linked to Iranian UAV component procurement network</div>
+              <div class="signal-source">Source: <span>OFAC · Reuters</span> · Confidence: HIGH</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="section-col-wide">
+        <!-- Pipeline tracker -->
+        <div class="card">
+          <div class="card-title">Active Pipeline — Red Sea Signal <div class="card-title-line"></div></div>
+          <div class="pipeline-track">
+            <div class="stage-node done">✓ SOURCES</div>
+            <div class="stage-arrow">→</div>
+            <div class="stage-node done">✓ VERIFY</div>
+            <div class="stage-arrow">→</div>
+            <div class="stage-node active">● CRISIS MODE</div>
+            <div class="stage-arrow">→</div>
+            <div class="stage-node pending">○ RED TEAM</div>
+            <div class="stage-arrow">→</div>
+            <div class="stage-node pending">○ PUBLISH</div>
+          </div>
+
+          <!-- Verified facts -->
+          <div style="margin-bottom: 12px;">
+            <div class="panel-label" style="margin-bottom: 6px;">Verified Facts</div>
+            <div class="verified-fact"><span class="fact-check">✓</span> Drone strike claimed by Houthi military spokesman at 06:45 UTC</div>
+            <div class="verified-fact"><span class="fact-check">✓</span> AIS shows M/V Pacific Carrier deviating 12nm south of usual lane at 06:58 UTC</div>
+            <div class="verified-fact"><span class="fact-check">✓</span> No confirmed casualties or vessel damage reported by Reuters</div>
+            <div class="verified-fact"><span class="fact-x">✕</span> Unverified: claim of direct hit; no satellite confirmation available</div>
+          </div>
+
+          <!-- Draft output preview -->
+          <div class="output-block">
+            <div class="output-header">
+              <span class="output-label">Crisis X Post — Draft</span>
+              <span class="conf-badge conf-crisis">CRISIS MODE</span>
+              <span class="output-platform">X / TWITTER</span>
+              <button class="copy-btn">COPY</button>
+            </div>
+            <div class="output-body">
+              <strong>VERIFIED:</strong> Houthi forces have claimed a drone strike on a commercial vessel in the Red Sea corridor (07:14 UTC). AIS data shows M/V Pacific Carrier deviating 12nm south of standard lane. No confirmed damage. Situation developing. <strong>#RedSea #XIntelOps</strong>
+            </div>
+          </div>
+
+          <div class="output-block">
+            <div class="output-header">
+              <span class="output-label">Thread — Tweet 1 of 4</span>
+              <span class="conf-badge conf-crisis">IN PROGRESS</span>
+              <span class="output-platform">X / THREAD</span>
+              <button class="copy-btn">COPY</button>
+            </div>
+            <div class="output-body">
+              Houthi forces claim drone strike on commercial vessel in Red Sea corridor (06:45 UTC). AIS data shows M/V Pacific Carrier deviation — 12nm south of standard lane at 06:58 UTC. No confirmed damage or casualties. Details still developing.
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 4px;">
+            <button class="btn btn-ghost">Revise</button>
+            <button class="btn btn-ghost">Red Team</button>
+            <button class="btn btn-primary" style="margin-left: auto;">Approve & Schedule →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="right-panel">
+
+    <!-- Today's Schedule -->
+    <div>
+      <div class="rp-section-title">Today's Publishing Schedule</div>
+      <div class="schedule-item">
+        <div class="sched-time">07:00</div>
+        <div class="sched-dot dot-done"></div>
+        <div class="sched-content">
+          <div class="sched-type">✓ Weekly Outlook — LinkedIn</div>
+          <div class="sched-desc">5 signals to watch this week — posted 07:02</div>
+        </div>
+      </div>
+      <div class="schedule-item">
+        <div class="sched-time">08:00</div>
+        <div class="sched-dot dot-active"></div>
+        <div class="sched-content">
+          <div class="sched-type">● Crisis Thread — X</div>
+          <div class="sched-desc">Red Sea strike · Pipeline: Crisis Mode active</div>
+        </div>
+      </div>
+      <div class="schedule-item">
+        <div class="sched-time">12:00</div>
+        <div class="sched-dot dot-pending"></div>
+        <div class="sched-content">
+          <div class="sched-type">What Most People Missed</div>
+          <div class="sched-desc">OFAC SDN additions signal · Draft pending</div>
+        </div>
+      </div>
+      <div class="schedule-item">
+        <div class="sched-time">18:00</div>
+        <div class="sched-dot dot-pending"></div>
+        <div class="sched-content">
+          <div class="sched-type">Journalist Comment — X</div>
+          <div class="sched-desc">Category C: Defense · Rotation: Wednesday</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Journalist Engagement -->
+    <div>
+      <div class="rp-section-title">Journalist Engagement — Today</div>
+      <div class="journalist-card">
+        <div class="journalist-name">Thomas Gibbons-Neff</div>
+        <div class="journalist-handle">@tgibbonsneff · NYT War Correspondent</div>
+        <div class="journalist-post">
+          "New U.S. military assessment says Red Sea threat environment has 'stabilized' in recent weeks — question is whether that holds..."
+        </div>
+        <div class="journalist-comment-draft">
+          AIS data from the past 48 hours tells a different story — insurance-driven routing changes remain elevated, with 18% of tankers still avoiding the corridor. "Stabilized" threat may reflect assessment lag rather than ground truth.
+        </div>
+      </div>
+      <button class="btn btn-ghost" style="width:100%; margin-top: 4px;">Rotate Journalist →</button>
+    </div>
+
+    <!-- Source Monitor -->
+    <div>
+      <div class="rp-section-title">Source Monitor</div>
+      <div class="source-row"><div class="source-indicator ind-live"></div><span class="source-name">Reuters</span><span class="source-count">12 signals</span></div>
+      <div class="source-row"><div class="source-indicator ind-live"></div><span class="source-name">AP Wire</span><span class="source-count">8 signals</span></div>
+      <div class="source-row"><div class="source-indicator ind-alert"></div><span class="source-name">MarineTraffic</span><span class="source-count">AIS anomaly</span></div>
+      <div class="source-row"><div class="source-indicator ind-live"></div><span class="source-name">ADS-B Exchange</span><span class="source-count">3 flags</span></div>
+      <div class="source-row"><div class="source-indicator ind-live"></div><span class="source-name">r/CredibleDefense</span><span class="source-count">2 signals</span></div>
+      <div class="source-row"><div class="source-indicator ind-live"></div><span class="source-name">r/ukraine</span><span class="source-count">4 signals</span></div>
+      <div class="source-row"><div class="source-indicator ind-idle"></div><span class="source-name">r/geopolitics</span><span class="source-count">idle</span></div>
+      <div class="source-row"><div class="source-indicator ind-live"></div><span class="source-name">OFAC SDN</span><span class="source-count">3 new entries</span></div>
+    </div>
+
+  </aside>
+
+</div>
+</body>
+</html>

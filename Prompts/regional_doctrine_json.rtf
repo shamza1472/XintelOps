@@ -1,0 +1,474 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 const DOCTRINE_TABLE = \{\
+  "Middle East": \{\
+    region_key: "middle_east",\
+    typical_actors: [\
+      "state_militaries",\
+      "non_state_militias",\
+      "proxies",\
+      "GCC_states",\
+      "Iran_axis",\
+      "Israel",\
+      "US_presence"\
+    ],\
+    escalation_patterns: \{\
+      description: "Rapid, laddered escalation with frequent retaliation cycles and signalling strikes.",\
+      ladder: [\
+        "rhetorical escalation",\
+        "limited strikes / probes",\
+        "wider salvo / area strikes",\
+        "infrastructure targeting",\
+        "regionalization of conflict"\
+      ],\
+      default_assumption: "Retaliation is likely but not guaranteed; domestic pressure and proxy dynamics matter.",\
+      deescalation_signals: [\
+        "backchannel reports",\
+        "joint statements",\
+        "ceasefire language",\
+        "reduced strike tempo"\
+      ]\
+    \},\
+    key_domains: [\
+      "ground_conflict",\
+      "maritime_risk",\
+      "airspace_activity",\
+      "infrastructure_energy",\
+      "diplomatic_signal"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "cross_border_missile_or_rocket_salvos",\
+        "attacks_on_energy_assets",\
+        "attacks_on_shipping",\
+        "strikes_in_capitals_or_symbolic_sites"\
+      ],\
+      crisis: [\
+        "simultaneous_multi_front_strikes",\
+        "direct_state_on_state_engagement",\
+        "closure_of_critical_chokepoints"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 7,\
+      medium_term_weeks: 4\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid sectarian framing or ideological language.",\
+      emphasis: [\
+        "strike_tempo",\
+        "proxy_involvement",\
+        "chokepoints",\
+        "energy_flows"\
+      ]\
+    \}\
+  \},\
+\
+  "Indo-Pacific": \{\
+    region_key: "indo_pacific",\
+    typical_actors: [\
+      "major_naval_powers",\
+      "air_forces",\
+      "coast_guards",\
+      "alliances_and_security_pacts"\
+    ],\
+    escalation_patterns: \{\
+      description: "Slow-burn deterrence and signalling through posture, deployments, and maritime/airspace friction.",\
+      ladder: [\
+        "statements_and_warnings",\
+        "patrol_increases",\
+        "dangerous_intercepts",\
+        "simulated_strikes_and_exercises",\
+        "blockade_like_behaviour_or_live_fire_near_targets"\
+      ],\
+      default_assumption: "Actors prioritize signalling and deterrence over immediate kinetic escalation.",\
+      deescalation_signals: [\
+        "announcement_of_dialogue",\
+        "scaled_back_exercises",\
+        "public_commitments_to_avoid_clashes"\
+      ]\
+    \},\
+    key_domains: [\
+      "maritime_risk",\
+      "airspace_activity",\
+      "diplomatic_signal",\
+      "infrastructure_energy"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "repeated_close_intercepts",\
+        "live_fire_drills_near_disputed_zones",\
+        "gray_zone_maritime_blocking"\
+      ],\
+      crisis: [\
+        "direct_strike_on_naval_or_air_assets",\
+        "declared_blockade",\
+        "sustained_missile_exercises_near_key_territory"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 48,\
+      short_term_days: 10,\
+      medium_term_weeks: 6\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid great_power_cheerleading; describe posture, not preference.",\
+      emphasis: [\
+        "force_posture",\
+        "rules_of_engagement_risk",\
+        "chokepoints_and_sea_lanes",\
+        "alliances_and_security_pacts"\
+      ]\
+    \}\
+  \},\
+\
+  "Eastern Europe": \{\
+    region_key: "eastern_europe",\
+    typical_actors: [\
+      "state_militaries",\
+      "alliances",\
+      "proxies",\
+      "security_services"\
+    ],\
+    escalation_patterns: \{\
+      description: "Attritional campaigns with periodic escalatory spikes and heavy logistics dependence.",\
+      ladder: [\
+        "artillery_and_missile_strikes",\
+        "infrastructure_targeting",\
+        "mobilisation_or_partial_mobilisation",\
+        "cross_border_incidents",\
+        "long_range_strikes_on_political_or_symbolic_targets"\
+      ],\
+      default_assumption: "Sustained tempo matters more than single events; logistics and industrial base are key.",\
+      deescalation_signals: [\
+        "frontline_stabilisation",\
+        "notable_drop_in_strike_volume",\
+        "negotiation_signals_or_prisoner_swaps"\
+      ]\
+    \},\
+    key_domains: [\
+      "ground_conflict",\
+      "airspace_activity",\
+      "infrastructure_energy",\
+      "cyber_activity"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "large_scale_strike_waves",\
+        "attacks_on_energy_grid",\
+        "mobilisation_orders"\
+      ],\
+      crisis: [\
+        "attacks_inside_alliance_territory",\
+        "sustained_strikes_on_capitals",\
+        "declared_use_of_nonconventional_capabilities"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 5,\
+      medium_term_weeks: 4\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid propaganda framing from any side; stick to terrain, logistics, and strike_patterns.",\
+      emphasis: [\
+        "industrial_capacity",\
+        "supply_lines",\
+        "air_defense_load",\
+        "civil_infrastructure_impact"\
+      ]\
+    \}\
+  \},\
+\
+  "South Asia": \{\
+    region_key: "south_asia",\
+    typical_actors: [\
+      "state_militaries",\
+      "intelligence_services",\
+      "non_state_groups",\
+      "political_parties"\
+    ],\
+    escalation_patterns: \{\
+      description: "Controlled brinkmanship with strong political signalling and domestic audiences in mind.",\
+      ladder: [\
+        "strong_rhetoric_and_diplomatic_steps",\
+        "limited_cross_border_fire_or_skirmishes",\
+        "airstrikes_or_artillery_concentrations",\
+        "mobilisation_near_borders",\
+        "limited_duration_high_visibility_confrontations"\
+      ],\
+      default_assumption: "Escalation is often bounded by nuclear_deterrence and international_pressure.",\
+      deescalation_signals: [\
+        "hotline_use",\
+        "joint_statements",\
+        "pullback_of_troops_or_assets",\
+        "confidence_building_measures"\
+      ]\
+    \},\
+    key_domains: [\
+      "ground_conflict",\
+      "airspace_activity",\
+      "diplomatic_signal",\
+      "political_internal"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "airspace_incursions",\
+        "troop_buildups",\
+        "terror_attacks_with_attribution"\
+      ],\
+      crisis: [\
+        "air_to_air_engagements",\
+        "large_scale_troop_mobilisation",\
+        "missile_use_cross_border"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 7,\
+      medium_term_weeks: 4\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid nationalist framings; treat all actors as strategic players with constraints.",\
+      emphasis: [\
+        "domestic_political_pressure",\
+        "international_mediation",\
+        "nuclear_shadow",\
+        "crisis_hotline_usage"\
+      ]\
+    \}\
+  \},\
+\
+  "Horn of Africa": \{\
+    region_key: "horn_of_africa",\
+    typical_actors: [\
+      "state_militaries",\
+      "militias",\
+      "insurgent_groups",\
+      "external_patrons",\
+      "maritime_actors"\
+    ],\
+    escalation_patterns: \{\
+      description: "Mixed internal conflict and external maritime risk with periodic sharp escalations.",\
+      ladder: [\
+        "localised_clashes",\
+        "regional_troop_movements",\
+        "attacks_on_ports_or_shipping",\
+        "cross_border_incursions",\
+        "regionalised_conflict_with_external_powers"\
+      ],\
+      default_assumption: "Fragile_states_and_complex_alliances make conflict patterns nonlinear.",\
+      deescalation_signals: [\
+        "regional_mediation",\
+        "AU_or_UN_involvement",\
+        "ceasefire_announcements"\
+      ]\
+    \},\
+    key_domains: [\
+      "ground_conflict",\
+      "maritime_risk",\
+      "political_internal",\
+      "infrastructure_energy"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "attacks_on_ports",\
+        "sustained_attacks_on_shipping",\
+        "internally_displaced_spikes"\
+      ],\
+      crisis: [\
+        "prolonged_chokepoint_disruption",\
+        "multi_country_involvement",\
+        "collapse_of_key_state_functions"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 10,\
+      medium_term_weeks: 6\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid oversimplifying clan_ethnic_politics; avoid reductionist labels.",\
+      emphasis: [\
+        "humanitarian_risk",\
+        "trade_routes",\
+        "port_and_corridor_security",\
+        "external_power_involvement"\
+      ]\
+    \}\
+  \},\
+\
+  "Caucasus": \{\
+    region_key: "caucasus",\
+    typical_actors: [\
+      "state_militaries",\
+      "separatist_entities",\
+      "external_guarantors",\
+      "regional_heavyweights"\
+    ],\
+    escalation_patterns: \{\
+      description: "Short, intense flare-ups around disputed territories with external mediation.",\
+      ladder: [\
+        "ceasefire_violations",\
+        "localized_offensives",\
+        "artillery_and_drone_strikes",\
+        "rapid_territorial_pushes",\
+        "externally_mediated_ceasefire"\
+      ],\
+      default_assumption: "Conflicts often end abruptly with deals rather than clear military exhaustion.",\
+      deescalation_signals: [\
+        "ceasefire_deals",\
+        "foreign_mediation",\
+        "withdrawal_of_heavy_assets"\
+      ]\
+    \},\
+    key_domains: [\
+      "ground_conflict",\
+      "airspace_activity",\
+      "diplomatic_signal"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "sustained_artillery",\
+        "drone_strike_campaigns",\
+        "mobilisation_of_reserves"\
+      ],\
+      crisis: [\
+        "direct_attacks_on_major_cities",\
+        "overt_involvement_of_external_heavy_powers"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 5,\
+      medium_term_weeks: 3\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid ethnic_historical_arguing; focus on control_of_ground_and_terms_of_ceasefire.",\
+      emphasis: [\
+        "territorial_control",\
+        "ceasefire_terms",\
+        "external_guarantors",\
+        "status_of_corridors_and_routes"\
+      ]\
+    \}\
+  \},\
+\
+  "Balkans": \{\
+    region_key: "balkans",\
+    typical_actors: [\
+      "state_security_forces",\
+      "minority_groups",\
+      "regional_organizations",\
+      "EU_and_NATO_structures"\
+    ],\
+    escalation_patterns: \{\
+      description: "Tense but heavily constrained by EU/NATO presence and mediation.",\
+      ladder: [\
+        "political_crises",\
+        "protests_and_blockades",\
+        "limited_security_incidents",\
+        "armed_clashes",\
+        "international_mediation_and_conditionality"\
+      ],\
+      default_assumption: "International_presence_acts_as_a_brake_on_full_scale_conflict.",\
+      deescalation_signals: [\
+        "EU_or_NATO_envoys",\
+        "agreements_on_administration_or_elections",\
+        "removal_of_roadblocks_and_checkpoints"\
+      ]\
+    \},\
+    key_domains: [\
+      "political_internal",\
+      "ground_conflict",\
+      "diplomatic_signal"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "armed_incidents_with_police_or_KFOR_like_forces",\
+        "sustained_roadblocks",\
+        "secessionist_rhetoric_spikes"\
+      ],\
+      crisis: [\
+        "widespread_armed_clashes",\
+        "breakdown_of_international_missions_authority"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 7,\
+      medium_term_weeks: 4\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid nationalist_talking_points; focus on institutions, security_dynamics, and EU/NATO_leverage.",\
+      emphasis: [\
+        "role_of_international_missions",\
+        "legal_and_constitutional_frameworks",\
+        "street_level_security",\
+        "political_timetables"\
+      ]\
+    \}\
+  \},\
+\
+  "Latin America": \{\
+    region_key: "latin_america",\
+    typical_actors: [\
+      "state_security_forces",\
+      "cartels_and_criminal_networks",\
+      "protest_movements",\
+      "regional_organizations"\
+    ],\
+    escalation_patterns: \{\
+      description: "Blend of political crises, organized crime violence, and occasional state\'96state frictions.",\
+      ladder: [\
+        "protests_and_political_crises",\
+        "targeted_violence",\
+        "military_deployments_in_cities",\
+        "border_incidents_or_diplomatic_rifts"\
+      ],\
+      default_assumption: "Instability_often_internal_and_crime_driven_rather_than_interstate_war.",\
+      deescalation_signals: [\
+        "political_deals",\
+        "security_pacts",\
+        "international_mediation"\
+      ]\
+    \},\
+    key_domains: [\
+      "political_internal",\
+      "infrastructure_energy",\
+      "financial_economic",\
+      "ground_conflict"\
+    ],\
+    thresholds: \{\
+      high_tension: [\
+        "mass_protests_with_security_force_clashes",\
+        "cartel_style_large_scale_attacks",\
+        "military_involvement_in_domestic_crises"\
+      ],\
+      crisis: [\
+        "prolonged_state_failure_in_major_cities",\
+        "interstate_military_incidents"\
+      ]\
+    \},\
+    default_time_horizons: \{\
+      immediate_hours: 24,\
+      short_term_days: 10,\
+      medium_term_weeks: 6\
+    \},\
+    commentary_style: \{\
+      bias_avoidance: "Avoid simplistic_drug_war_framing; focus on institutions, governance, and economic_impact.",\
+      emphasis: [\
+        "governance_stability",\
+        "security_force_capacity",\
+        "regional_mediation",\
+        "impact_on_trade_and_investment"\
+      ]\
+    \}\
+  \}\
+\};}

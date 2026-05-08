@@ -1,0 +1,12 @@
+id,url,source_name,priority,selector_main,selector_title,selector_time
+reuters-int,https://www.reuters.com/world/,Reuters,high,article,head,time
+dw-global,https://www.dw.com/en/top-stories/,Deutsche Welle,med,article,h1,time
+janes-defense,https://www.janes.com/defence-news,Jane's Defence Weekly,high,div.content,h2,time
+eurasianet,https://eurasianet.org/latest,EurasiaNet,med,article,h1,time
+oryx-blog,https://www.oryxspioenkop.com/,Oryx Blog,low,div.blog-post,h1,time
+aljazeera-mid,https://www.aljazeera.com/news/,Al Jazeera,high,article,h1,time
+warzone,https://www.twz.com/,The War Zone,high,article,h1,time
+defensenews,https://www.defensenews.com/,Defense News,high,article,h1,time
+politico-eu,https://www.politico.eu/,Politico Europe,med,article,h1,time
+bbc-world,https://www.bbc.com/news/world,BBC World,med,article,h1,time
+
