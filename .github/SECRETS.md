@@ -1,52 +1,25 @@
-# GitHub Secrets Setup (Cloud Scheduler)
+# GitHub Secrets (Optional Ingest Workflow)
 
-The XIntelOps pipeline runs automatically via [`.github/workflows/xintelops-scheduler.yml`](workflows/xintelops-scheduler.yml). **No local `.env` file is required for production** — configure secrets in GitHub instead.
+The **primary scheduler is Cursor Automation** — see [docs/CURSOR_AUTOMATION.md](../docs/CURSOR_AUTOMATION.md).
 
-## Add secrets
+GitHub Actions only runs optional **ingest-only** backup (`xintelops-ingest.yml`). It does not call any LLM APIs.
 
-Go to **GitHub repo → Settings → Secrets and variables → Actions → New repository secret**
+## Secrets for optional ingest workflow
 
-| Secret | Required | Description |
-|---|---|---|
-| `SUPABASE_URL` | Yes | `https://<project-ref>.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (not anon key) |
-| `OPENAI_API_KEY` | Yes | Embeddings (`text-embedding-3-small`) |
-| `ANTHROPIC_API_KEY` | Yes | Multi-agent chain (Claude Haiku) |
-| `RESEND_API_KEY` | Yes | Email delivery |
-| `RECIPIENT_EMAIL` | Yes | Where scan briefs are sent |
-
-## One-time setup
-
-1. Apply SQL migrations in `supabase/migrations/` to your Supabase project
-2. Add all secrets above
-3. Run **Actions → XIntelOps Intelligence Scheduler → Run workflow → mode: `seed`**
-4. Run **mode: `scan`** once to verify email delivery
-
-## Schedule
-
-Automatic runs every **3 hours PKT** (8× daily):
-
-| PKT | UTC |
+| Secret | Required |
 |---|---|
-| 00:00 | 19:00 (prev day) |
-| 03:00 | 22:00 (prev day) |
-| 06:00 | 01:00 |
-| 09:00 | 04:00 |
-| 12:00 | 07:00 |
-| 15:00 | 10:00 |
-| 18:00 | 13:00 |
-| 21:00 | 16:00 |
+| `SUPABASE_URL` | Yes (if using Supabase storage) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes (if using Supabase storage) |
 
-## Manual triggers
+## Secrets for Cursor Cloud Agent (primary)
 
-**Actions → XIntelOps Intelligence Scheduler → Run workflow**
+Add these in **Cursor Dashboard → Cloud Agents → Secrets**:
 
-| Mode | Use |
+| Secret | Required |
 |---|---|
-| `scan` | Full pipeline (default scheduled behavior) |
-| `ingest-only` | Fetch + vector store only, no LLM/email |
-| `seed` | Reload `trusted_sources` + `journalist_engagement_targets` |
+| `SUPABASE_URL` | Yes |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes |
+| `RESEND_API_KEY` | Yes |
+| `RECIPIENT_EMAIL` | Yes |
 
-## Local development (optional)
-
-For local runs only, copy `.env.example` → `.env`. Production cloud runs use GitHub Secrets exclusively.
+**Not needed in Cursor mode:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`

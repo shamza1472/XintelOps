@@ -34,6 +34,7 @@ class SupabaseClient:
         url: str = "",
         source_type: str = "news",
         embedding: list[float] | None = None,
+        content_hash: str | None = None,
         is_duplicate: bool = False,
         similarity_score: float | None = None,
     ) -> int | None:
@@ -48,6 +49,8 @@ class SupabaseClient:
         }
         if embedding is not None:
             payload["vector_embedding"] = embedding
+        if content_hash is not None:
+            payload["content_hash"] = content_hash
 
         result = self._require_client().table("ingested_raw_feeds").insert(payload).execute()
         rows = result.data or []
@@ -68,6 +71,23 @@ class SupabaseClient:
             return result.data or []
         except Exception:
             return []
+
+    def find_by_content_hash(self, digest: str, days: int = 7) -> dict[str, Any] | None:
+        try:
+            result = (
+                self._require_client()
+                .table("ingested_raw_feeds")
+                .select("id, source, timestamp")
+                .eq("content_hash", digest)
+                .eq("is_duplicate", False)
+                .order("timestamp", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            return rows[0] if rows else None
+        except Exception:
+            return None
 
     def insert_synthesized_intelligence(self, payload: dict[str, Any]) -> int | None:
         result = self._require_client().table("synthesized_intelligence").insert(payload).execute()

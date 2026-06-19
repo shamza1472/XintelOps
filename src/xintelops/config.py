@@ -9,10 +9,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 
 
 @dataclass(frozen=True)
 class Settings:
+    llm_provider: str
     supabase_url: str
     supabase_service_role_key: str
     openai_api_key: str
@@ -28,6 +30,18 @@ class Settings:
     journalists_csv_path: Path
     twitter_rss_base: str
     dual_write_legacy: bool
+    artifacts_dir: Path
+    scan_bundle_path: Path
+    scan_result_path: Path
+    scan_context_path: Path
+
+    @property
+    def uses_cursor_llm(self) -> bool:
+        return self.llm_provider == "cursor"
+
+    @property
+    def uses_external_llm(self) -> bool:
+        return self.llm_provider == "anthropic"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -36,7 +50,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def get_settings() -> Settings:
+    artifacts = Path(os.getenv("ARTIFACTS_DIR", str(ARTIFACTS_DIR)))
     return Settings(
+        llm_provider=os.getenv("LLM_PROVIDER", "cursor").lower(),
         supabase_url=os.getenv("SUPABASE_URL", ""),
         supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
@@ -52,4 +68,8 @@ def get_settings() -> Settings:
         journalists_csv_path=REPO_ROOT / os.getenv("JOURNALISTS_CSV_PATH", "data/journalists.csv"),
         twitter_rss_base=os.getenv("TWITTER_RSS_BASE", "https://rsshub.app/twitter/user"),
         dual_write_legacy=_env_bool("DUAL_WRITE_LEGACY", True),
+        artifacts_dir=artifacts,
+        scan_bundle_path=artifacts / "scan_bundle.txt",
+        scan_result_path=artifacts / "scan_result.json",
+        scan_context_path=artifacts / "scan_context.json",
     )

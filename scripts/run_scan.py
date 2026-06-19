@@ -39,10 +39,19 @@ def main() -> int:
     bundle = args.bundle_file.read_text(encoding="utf-8") if args.bundle_file else None
 
     if args.ingest_only:
-        items = runner.ingest.fetch_all()
-        runner._store_ingested_items(items)
+        items, _bundle = runner.ingest_and_store()
         logging.info("Ingestion complete: %s items", len(items))
         return 0
+
+    if settings.uses_cursor_llm:
+        logging.error(
+            "LLM_PROVIDER=cursor: use Cursor Automation workflow instead.\n"
+            "  1. python scripts/run_ingest.py\n"
+            "  2. Agent analyzes → artifacts/scan_result.json\n"
+            "  3. python scripts/finalize_scan.py\n"
+            "See docs/CURSOR_AUTOMATION.md"
+        )
+        return 1
 
     result = runner.run(skip_ingest=args.skip_ingest, source_bundle=bundle)
     logging.info("Scan complete: %s", result)

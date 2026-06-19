@@ -2,97 +2,62 @@
 
 **Intelligence That Acts.**
 
-Production-ready Python pipeline for automated geopolitical intelligence: ingest → vector dedup → multi-agent analysis → human-in-the-loop email.
-
-## Architecture
+Automated geopolitical intelligence pipeline. **Cursor Cloud Agent is the LLM brain** — no OpenAI or Anthropic API costs in production.
 
 ```
-[Data Ingestion] → [Supabase pgvector] → [Multi-Agent AI Chain] → [Resend Email]
+[Ingest scripts] → [Cursor Agent analysis] → [Supabase + Email brief] → [You post manually on X]
 ```
 
-| Stage | Module | Description |
+## Primary setup: Cursor Automation
+
+**Full guide:** [docs/CURSOR_AUTOMATION.md](docs/CURSOR_AUTOMATION.md)
+
+1. Merge PR and apply `supabase/migrations/` SQL
+2. Add secrets in **Cursor Dashboard → Cloud Agents → Secrets**:
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `RESEND_API_KEY`, `RECIPIENT_EMAIL`
+3. Create automation at [cursor.com/automations/new](https://cursor.com/automations/new):
+   - **Cron:** `0 1,4,7,10,13,16,19,22 * * *` (every 3 hours PKT)
+   - **Prompt:** see [docs/CURSOR_AUTOMATION.md](docs/CURSOR_AUTOMATION.md)
+4. Click **Run now** to test
+
+The Cloud Agent runs ingest → analyzes with its own model → sends your email brief.
+
+## What costs money
+
+| Service | Cursor mode | Notes |
 |---|---|---|
-| 1 | `src/xintelops/ingest/` | RSS, HTML, telemetry, journalist fetchers |
-| 2 | `src/xintelops/vector/` | OpenAI embeddings + cosine dedup (0.85) |
-| 3 | `src/xintelops/agents/` | Verifier → Analyst → Red Team → Strategist |
-| 4 | `src/xintelops/delivery/` | HTML brief email via Resend |
+| Cursor Cloud Agent | Your Cursor plan | Includes the LLM — no separate API keys |
+| Supabase | Free tier / existing | Storage only |
+| Resend | Free tier | Email delivery |
+| OpenAI / Anthropic | **Not used** | Set `LLM_PROVIDER=anthropic` only for legacy mode |
+| X API | Optional ~$25–50/mo | Accurate journalist reply targeting only |
 
-## Cloud Setup (Recommended)
-
-Production runs on **GitHub Actions** — no local `.env` required. The cloud scheduler is the main execution path.
-
-### 1. Add GitHub Secrets
-
-See [`.github/SECRETS.md`](.github/SECRETS.md) for the full list. Add these under **Settings → Secrets and variables → Actions**:
-
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
-- `RESEND_API_KEY`, `RECIPIENT_EMAIL`
-
-### 2. Apply database migrations
-
-Run SQL in `supabase/migrations/` against your Supabase project (Dashboard → SQL Editor).
-
-### 3. One-time seed
-
-**Actions → XIntelOps Intelligence Scheduler → Run workflow → mode: `seed`**
-
-### 4. Test a scan
-
-**Actions → XIntelOps Intelligence Scheduler → Run workflow → mode: `scan`**
-
-After that, the scheduler runs automatically every 3 hours PKT (8× daily).
-
-## Local Development (Optional)
+## Manual workflow (what the agent runs)
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# Fill in keys for local testing only
-python scripts/run_scan.py --seed
-python scripts/run_scan.py
+python scripts/run_ingest.py          # fetch sources, hash dedup, write bundle
+# agent reads artifacts/scan_bundle.txt + prompts/cursor_scan.md → writes scan_result.json
+python scripts/finalize_scan.py       # Supabase + Resend email
 ```
 
-Ingestion only:
+## Data files
 
-```bash
-python scripts/run_scan.py --ingest-only
-```
+| File | Purpose |
+|---|---|
+| `data/xintel_sources.csv` | ~158 OSINT/news sources |
+| `data/journalists.csv` | 47-analyst engagement roster |
+| `prompts/cursor_scan.md` | Analysis prompt + JSON schema |
+| `AGENTS.md` | Cloud agent instructions |
 
-## Data Files
+## Legacy mode (external LLM APIs)
 
-| File | Rows | Purpose |
-|---|---|---|
-| `data/xintel_sources.csv` | ~158 | OSINT/news source catalog |
-| `data/journalists.csv` | 47 | Engagement roster (36 core + 11 expansion) |
-| `data/sources.csv` | 10 | CSS selector scraper config |
+Set `LLM_PROVIDER=anthropic` and add OpenAI + Anthropic keys to run `python scripts/run_scan.py` with API-based agents.
 
-## Environment Variables
+## Optional: GitHub Actions ingest backup
 
-**Production (cloud):** use [GitHub Secrets](.github/SECRETS.md) — the scheduler injects them automatically.
-
-**Local only:** see [`.env.example`](.env.example).
-
-Required keys:
-
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY` (embeddings)
-- `ANTHROPIC_API_KEY` (agents)
-- `RESEND_API_KEY`, `RECIPIENT_EMAIL`
-
-## Scheduling
-
-Automated via [`.github/workflows/xintelops-scheduler.yml`](.github/workflows/xintelops-scheduler.yml):
-
-- **8 runs/day** — every 3 hours PKT (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00)
-- **Manual trigger** — Actions tab → Run workflow (`scan`, `ingest-only`, or `seed`)
-
-## Legacy Compatibility
-
-Set `DUAL_WRITE_LEGACY=true` to continue writing to existing Supabase tables (`raw_signals`, `intelligence_outputs`, `pipeline_log`, etc.) used by the TypeScript edge function.
+`.github/workflows/xintelops-ingest.yml` — ingest-only, no LLM, no email. See [.github/SECRETS.md](.github/SECRETS.md).
 
 ## Reference
 
-The original production edge function is preserved at [`xintelops-scan-edge-function.ts`](xintelops-scan-edge-function.ts).
+Original TypeScript edge function: [`xintelops-scan-edge-function.ts`](xintelops-scan-edge-function.ts)
