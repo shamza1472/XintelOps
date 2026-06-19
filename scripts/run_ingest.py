@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from xintelops.config import get_settings
+from xintelops.delivery.cadence import is_linkedin_day, next_linkedin_day
 from xintelops.ingest.journalist_fetcher import get_journalist_for_today, load_journalists
+from xintelops.agents.strategist import get_pkt_date_info
 from xintelops.pipeline.runner import PipelineRunner
 
 
@@ -27,9 +29,15 @@ def main() -> int:
 
     journalists = load_journalists(settings.journalists_csv_path)
     journalist = get_journalist_for_today(journalists, datetime.now(timezone.utc))
+    pkt = get_pkt_date_info(datetime.now(timezone.utc))
     context = {
         "items_ingested": len(items),
         "bundle_path": str(settings.scan_bundle_path),
+        "date_pkt": pkt["date_str"],
+        "time_pkt": pkt["time_str"],
+        "day_of_week": pkt["day_name"],
+        "linkedin_today": is_linkedin_day(pkt["day_name"]),
+        "next_linkedin_day": next_linkedin_day(pkt["day_name"]),
         "journalist": {
             "name": journalist.name,
             "handle": journalist.handle,

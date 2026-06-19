@@ -18,6 +18,12 @@ Then read:
 
 Produce analysis and write JSON to `artifacts/scan_result.json` following the schema in `prompts/cursor_scan.md`.
 
+Required fields for every scan:
+- `top_signal.event_date` — when the event happened (within 24h), not scan time
+- `source_citations` — at least 2 URLs with names and published dates
+- `linkedin_post` — never empty; on Fri/Mon/Wed write full post with `linkedin_today=true`
+- `posting_cadence` — when to publish each piece (see docs/POSTING_CADENCE.md)
+
 Then:
 
 ```bash

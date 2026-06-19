@@ -10,6 +10,7 @@ from xintelops.agents.strategist import StrategistAgent
 from xintelops.agents.verifier import VerifierAgent
 from xintelops.config import Settings, get_settings
 from xintelops.db.supabase_client import SupabaseClient
+from xintelops.delivery.cadence import enrich_result
 from xintelops.delivery.resend_client import ResendClient
 from xintelops.ingest.orchestrator import IngestOrchestrator
 from xintelops.vector.deduplicator import Deduplicator
@@ -40,6 +41,7 @@ class PipelineRunner:
         return items, bundle
 
     def finalize(self, result: dict[str, Any]) -> dict[str, Any]:
+        result = enrich_result(result)
         synth_id = None
         legacy_ids = {"raw_signal_id": None, "output_id": None, "pipeline_log_id": None}
         if self.db.client:

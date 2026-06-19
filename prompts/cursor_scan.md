@@ -45,9 +45,13 @@ Stress-test your analysis:
 ### STAGE 4 — CONTENT PACKAGE
 - **X POST**: SHORT POST (<280 chars) or THREAD (5–8 tweets) for complex stories
 - **what_most_missed**: "What most people are missing about [topic]: [2–3 sentences]"
-- **LinkedIn**: Mon/Wed/Fri only — full post 200–350 words; otherwise note next posting day
+- **LinkedIn**: Monday, Wednesday, Friday ONLY
+  - If today is Mon/Wed/Fri: set `linkedin_today=true` and write a full 200–350 word flagship post in `linkedin_post` (never leave empty)
+  - Otherwise: set `linkedin_today=false` and write: "Next LinkedIn post: [next Mon/Wed/Fri] — [recommended angle from this scan]"
 - **internal_brief**: 150–250 word private memo (never published)
 - **implications_48h** and **implications_7d**
+- **event_date**: ISO date (YYYY-MM-DD) when the underlying event occurred — NOT the scan date. Must be within the last 24 hours.
+- **source_citations**: At least 2 items with clickable URLs you relied on. Include `published_date` per source when available.
 
 ### STAGE 5 — JOURNALIST ENGAGEMENT
 Use the journalist from `artifacts/scan_context.json`.
@@ -80,6 +84,7 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
     "domain": "",
     "confidence": "HIGH",
     "crisis_flag": false,
+    "event_date": "YYYY-MM-DD",
     "verified_facts": []
   },
   "post_format": "SHORT POST",
@@ -101,7 +106,16 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
     "comment_draft": "",
     "engagement_rationale": ""
   },
-  "redteam_summary": ""
+  "redteam_summary": "",
+  "source_citations": [
+    {"name": "", "url": "", "published_date": "YYYY-MM-DD", "tier": "L1"}
+  ],
+  "posting_cadence": {
+    "x_primary": "",
+    "x_secondary": "",
+    "x_engagement": "",
+    "linkedin": ""
+  }
 }
 ```
 

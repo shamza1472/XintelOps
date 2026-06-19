@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from xintelops.config import get_settings
+from xintelops.delivery.cadence import enrich_result
 from xintelops.pipeline.runner import PipelineRunner
 
 
@@ -30,7 +31,7 @@ def main() -> int:
         logging.error("Missing result file: %s", result_path)
         return 1
 
-    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result = enrich_result(json.loads(result_path.read_text(encoding="utf-8")))
     runner = PipelineRunner(settings)
     outcome = runner.finalize(result)
     logging.info("Finalize complete: %s", outcome)
