@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 from typing import Any
 
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from xintelops.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _missing_table_error(exc: Exception) -> bool:
+    if isinstance(exc, APIError):
+        payload = exc.args[0] if exc.args else {}
+        if isinstance(payload, dict):
+            return payload.get("code") == "PGRST205"
+    return False
 
 
 class SupabaseClient:
@@ -52,7 +64,13 @@ class SupabaseClient:
         if content_hash is not None:
             payload["content_hash"] = content_hash
 
-        result = self._require_client().table("ingested_raw_feeds").insert(payload).execute()
+        try:
+            result = self._require_client().table("ingested_raw_feeds").insert(payload).execute()
+        except Exception as exc:
+            if _missing_table_error(exc):
+                logger.warning("ingested_raw_feeds table missing; apply supabase/migrations/")
+                return None
+            raise
         rows = result.data or []
         return rows[0]["id"] if rows else None
 
@@ -90,7 +108,13 @@ class SupabaseClient:
             return None
 
     def insert_synthesized_intelligence(self, payload: dict[str, Any]) -> int | None:
-        result = self._require_client().table("synthesized_intelligence").insert(payload).execute()
+        try:
+            result = self._require_client().table("synthesized_intelligence").insert(payload).execute()
+        except Exception as exc:
+            if _missing_table_error(exc):
+                logger.warning("synthesized_intelligence table missing; apply supabase/migrations/")
+                return None
+            raise
         rows = result.data or []
         return rows[0]["id"] if rows else None
 
@@ -215,7 +239,13 @@ class SupabaseClient:
             }
             if not payload["source_name"]:
                 continue
-            self._require_client().table("trusted_sources").upsert(payload).execute()
+            try:
+                self._require_client().table("trusted_sources").upsert(payload).execute()
+            except Exception as exc:
+                if _missing_table_error(exc):
+                    logger.warning("trusted_sources table missing; apply supabase/migrations/ and re-run --seed")
+                    return count
+                raise
             count += 1
         return count
 
@@ -237,9 +267,17 @@ class SupabaseClient:
                 "trust_level": row["trust_level"],
                 "reliability_score": 0.85,
             }
-            self._require_client().table("journalist_engagement_targets").upsert(
-                payload, on_conflict="handle"
-            ).execute()
+            try:
+                self._require_client().table("journalist_engagement_targets").upsert(
+                    payload, on_conflict="handle"
+                ).execute()
+            except Exception as exc:
+                if _missing_table_error(exc):
+                    logger.warning(
+                        "journalist_engagement_targets table missing; apply supabase/migrations/ and re-run --seed"
+                    )
+                    return count
+                raise
             count += 1
         return count
 
