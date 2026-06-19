@@ -18,6 +18,8 @@ def _missing_table_error(exc: Exception) -> bool:
         payload = exc.args[0] if exc.args else {}
         if isinstance(payload, dict):
             return payload.get("code") == "PGRST205"
+        if isinstance(payload, str):
+            return "PGRST205" in payload or "Could not find the table" in payload
     return False
 
 
