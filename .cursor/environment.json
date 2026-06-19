@@ -1,0 +1,12 @@
+{
+  "install": "pip install -r requirements.txt",
+  "env": {
+    "LLM_PROVIDER": "cursor",
+    "PYTHONPATH": "src",
+    "DUAL_WRITE_LEGACY": "true",
+    "SIMILARITY_THRESHOLD": "0.85",
+    "RATE_DELAY_MS": "3000",
+    "SOURCES_CSV_PATH": "data/xintel_sources.csv",
+    "JOURNALISTS_CSV_PATH": "data/journalists.csv"
+  }
+}
