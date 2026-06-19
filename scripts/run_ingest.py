@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from xintelops.config import get_settings
 from xintelops.delivery.cadence import is_linkedin_day, next_linkedin_day
-from xintelops.ingest.journalist_fetcher import get_journalist_for_today, load_journalists
+from xintelops.ingest.journalist_fetcher import fetch_journalist_candidates, load_journalists
 from xintelops.agents.strategist import get_pkt_date_info
 from xintelops.pipeline.runner import PipelineRunner
 
@@ -28,8 +28,9 @@ def main() -> int:
     items, bundle = runner.ingest_and_store()
 
     journalists = load_journalists(settings.journalists_csv_path)
-    journalist = get_journalist_for_today(journalists, datetime.now(timezone.utc))
-    pkt = get_pkt_date_info(datetime.now(timezone.utc))
+    utc_now = datetime.now(timezone.utc)
+    candidates = fetch_journalist_candidates(journalists, settings, utc_now)
+    pkt = get_pkt_date_info(utc_now)
     context = {
         "items_ingested": len(items),
         "bundle_path": str(settings.scan_bundle_path),
@@ -38,14 +39,12 @@ def main() -> int:
         "day_of_week": pkt["day_name"],
         "linkedin_today": is_linkedin_day(pkt["day_name"]),
         "next_linkedin_day": next_linkedin_day(pkt["day_name"]),
-        "journalist": {
-            "name": journalist.name,
-            "handle": journalist.handle,
-            "outlet": journalist.outlet,
-            "category": journalist.category,
-            "focus": journalist.focus,
-            "profile_url": journalist.profile_url,
-        },
+        "journalist_candidates": candidates,
+        "journalist_selection_note": (
+            "Pick ONE journalist from journalist_candidates who posted an original tweet "
+            "relevant to today's top signal. Use their specific post URL — never profile-only links. "
+            "Skip engagement if no candidate fits."
+        ),
         "llm_provider": settings.llm_provider,
         "next_step": "Read artifacts/scan_bundle.txt and prompts/cursor_scan.md, produce JSON at artifacts/scan_result.json",
     }

@@ -26,6 +26,48 @@ def _render_citations(citations: list[dict[str, Any]]) -> str:
     return f"<ul class='citation-list'>{''.join(rows)}</ul>"
 
 
+def _format_x_content(result: dict[str, Any]) -> tuple[str, str]:
+    post_format = str(result.get("post_format") or "SHORT POST").upper()
+    if post_format == "THREAD":
+        thread = result.get("x_thread")
+        if isinstance(thread, list) and thread:
+            numbered = [f"{idx}/ {tweet}" for idx, tweet in enumerate(thread, 1)]
+            return "🧵 THREAD", "\n\n".join(numbered)
+        raw = str(thread or result.get("x_post") or "")
+        return "🧵 THREAD", raw
+    return "📱 SINGLE TWEET", str(result.get("x_post") or "")
+
+
+def _render_journalist_section(journalist: dict[str, Any], day_of_week: str) -> str:
+    if journalist.get("engagement_skipped"):
+        return (
+            '<p class="muted">No suitable original journalist post found this scan — '
+            "skip engagement today.</p>"
+        )
+
+    post_url = journalist.get("target_post_url") or journalist.get("post_url") or ""
+    post_summary = journalist.get("target_post_summary") or journalist.get("post_summary") or ""
+    why_comment = journalist.get("why_we_comment") or journalist.get("engagement_rationale") or ""
+    post_link = (
+        f'<a href="{_esc(post_url)}" class="post-url">{_esc(post_url)}</a>'
+        if post_url
+        else '<span class="muted">No post URL captured — regenerate scan</span>'
+    )
+
+    return f"""
+      <div class="journalist-name">{_esc(journalist.get("name"))}</div>
+      <div class="journalist-handle">@{_esc(journalist.get("handle"))} · {_esc(journalist.get("outlet"))} · Category {_esc(journalist.get("category"))} · {_esc(day_of_week)}</div>
+      <h4>Their post (comment here):</h4>
+      <div class="journalist-hint">{post_link}</div>
+      <h4>What they said:</h4>
+      <div class="journalist-hint">{_esc(post_summary).replace(chr(10), "<br>")}</div>
+      <h4>Why we're commenting:</h4>
+      <div class="journalist-hint">{_esc(why_comment).replace(chr(10), "<br>")}</div>
+      <h4>Your comment:</h4>
+      <div class="post-box purple">{_esc(journalist.get("comment_draft", "")).replace(chr(10), "<br>")}</div>
+    """
+
+
 def build_email_html(result: dict[str, Any]) -> str:
     result = enrich_result(dict(result))
     signal = result.get("top_signal", {}) or {}
@@ -38,10 +80,8 @@ def build_email_html(result: dict[str, Any]) -> str:
     tag_class = "tag-crisis" if crisis_flag else "tag-high" if confidence_tag == "HIGH" else "tag-medium"
     event_date = signal.get("event_date") or signal.get("published_date") or "See sources"
 
-    if result.get("post_format") == "THREAD":
-        x_content = result.get("x_thread") or result.get("x_post") or ""
-    else:
-        x_content = result.get("x_post") or ""
+    x_format_label, x_content = _format_x_content(result)
+    journalist_html = _render_journalist_section(journalist, str(result.get("day_of_week") or ""))
 
     if result.get("linkedin_today"):
         linkedin_section = (
@@ -152,6 +192,7 @@ def build_email_html(result: dict[str, Any]) -> str:
     <div class="section">
       <div class="section-label">📡 Post This Now — X</div>
       <div class="signal-meta">
+        <span class="tag tag-domain">{_esc(x_format_label)}</span>
         <span class="tag tag-domain">{_esc(result.get("post_format", "POST"))}</span>
       </div>
       <div class="post-box {'crisis' if crisis_flag else ''}">{_esc(x_content).replace(chr(10), '<br>')}</div>
@@ -161,12 +202,8 @@ def build_email_html(result: dict[str, Any]) -> str:
       <div class="post-box green">{_esc(result.get("what_most_missed", "")).replace(chr(10), "<br>")}</div>
     </div>
     <div class="section">
-      <div class="section-label">💬 Journalist Comment</div>
-      <div class="journalist-name">{_esc(journalist.get("name"))}</div>
-      <div class="journalist-handle">@{_esc(journalist.get("handle"))} · {_esc(journalist.get("outlet"))} · Category {_esc(journalist.get("category"))} · {_esc(result.get("day_of_week"))}</div>
-      <div class="journalist-hint">⚡ Find their latest post: <a href="{_esc(journalist.get('profile_url'))}" class="post-url">{_esc(journalist.get("profile_url"))}</a></div>
-      <h4>Your comment:</h4>
-      <div class="post-box purple">{_esc(journalist.get("comment_draft", "")).replace(chr(10), "<br>")}</div>
+      <div class="section-label">💬 Journalist Comment — reply on their post</div>
+      {journalist_html}
     </div>
     <div class="section">
       <div class="section-label">💼 LinkedIn {'— POST TODAY' if result.get('linkedin_today') else '— NOT TODAY'}</div>

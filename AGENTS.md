@@ -21,6 +21,9 @@ Produce analysis and write JSON to `artifacts/scan_result.json` following the sc
 Required fields for every scan:
 - `top_signal.event_date` — when the event happened (within 24h), not scan time
 - `source_citations` — at least 2 URLs with names and published dates
+- `post_format` — exactly `SHORT POST` or `THREAD`; threads use `x_thread` array with 5–8 tweets
+- `journalist.target_post_url` — specific post link from `journalist_candidates` (not profile URL)
+- `journalist.target_post_summary` and `journalist.why_we_comment` — explain their post and our angle
 - `linkedin_post` — never empty; on Fri/Mon/Wed write full post with `linkedin_today=true`
 - `posting_cadence` — when to publish each piece (see docs/POSTING_CADENCE.md)
 

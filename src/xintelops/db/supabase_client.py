@@ -154,7 +154,7 @@ class SupabaseClient:
                 "midday_signal": signal.get("title", ""),
                 "midday_draft": result.get("what_most_missed", ""),
                 "evening_format": "journalist_comment",
-                "evening_target": f"@{journalist.get('handle', '')}",
+                "evening_target": journalist.get("target_post_url") or f"@{journalist.get('handle', '')}",
                 "evening_draft": journalist.get("comment_draft", ""),
                 "linkedin_post_day": result.get("day_of_week", ""),
                 "linkedin_type": "flagship_analysis" if result.get("linkedin_today") else "not_today",
@@ -170,10 +170,12 @@ class SupabaseClient:
                 "journalist_category": journalist.get("category", ""),
                 "journalist_name": journalist.get("name", ""),
                 "journalist_handle": journalist.get("handle", ""),
-                "post_url": journalist.get("profile_url", ""),
-                "post_summary": f"Check @{journalist.get('handle', '')} for latest post",
+                "post_url": journalist.get("target_post_url") or journalist.get("profile_url", ""),
+                "post_summary": journalist.get("target_post_summary")
+                or journalist.get("post_summary", ""),
                 "comment_draft": journalist.get("comment_draft", ""),
-                "engagement_rationale": journalist.get("engagement_rationale", ""),
+                "engagement_rationale": journalist.get("why_we_comment")
+                or journalist.get("engagement_rationale", ""),
                 "intelligence_output_id": output_id,
             }
         ).execute()

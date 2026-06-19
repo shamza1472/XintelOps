@@ -26,11 +26,18 @@ def build_posting_cadence(result: dict[str, Any]) -> dict[str, str]:
     linkedin_today = bool(result.get("linkedin_today")) or is_linkedin_day(day)
     next_li = next_linkedin_day(day)
 
-    x_format = str(result.get("post_format") or "SHORT POST")
+    x_format = str(result.get("post_format") or "SHORT POST").upper()
+    x_label = "🧵 THREAD" if x_format == "THREAD" else "📱 SINGLE TWEET"
+    journalist = result.get("journalist") or {}
+    post_url = journalist.get("target_post_url") or journalist.get("post_url") or "see email"
     return {
-        "x_primary": f"Post within 30 minutes of this email — {x_format} (top verified signal).",
+        "x_primary": f"Post within 30 minutes — {x_label} ({x_format}).",
         "x_secondary": "Post 4–6 hours later (or at the next scan): use the 'What Most People Missed' block.",
-        "x_engagement": "Once daily: paste the journalist comment under their latest relevant post (do not spam).",
+        "x_engagement": (
+            f"Once daily: reply on the journalist's specific post ({post_url}) — not their profile."
+            if not journalist.get("engagement_skipped")
+            else "Skip journalist engagement today — no relevant original post found."
+        ),
         "linkedin": (
             "Post today 09:00–11:00 PKT — flagship analysis (200–350 words)."
             if linkedin_today
