@@ -8,18 +8,50 @@ Automated geopolitical intelligence pipeline. **Cursor Cloud Agent is the LLM br
 [Ingest scripts] → [Cursor Agent analysis] → [Supabase + Email brief] → [You post manually on X]
 ```
 
+## Production status
+
+**Merged to `main` and live.** Supabase migrations applied, catalogs seeded (148 sources, 47 journalists).
+
+| Component | Status |
+|---|---|
+| Python pipeline on `main` | Ready |
+| Supabase (XIntelOps project) | Active, migrations applied |
+| Legacy edge-function cron | Disabled — use Cursor Automation only |
+| Email briefs (Resend) | Working (last scan: pipeline_log) |
+
+### One-time: activate Cursor Automation
+
+If not already done, create the scheduler at [cursor.com/automations/new](https://cursor.com/automations/new):
+
+- **Repository:** `shamza1472/XintelOps` → branch **`main`**
+- **Cron:** `0 1,4,7,10,13,16,19,22 * * *` (every 3 hours PKT)
+- **Secrets:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `RECIPIENT_EMAIL`
+- **Prompt:** copy from [docs/CURSOR_AUTOMATION.md](docs/CURSOR_AUTOMATION.md)
+
+Click **Run now** once to confirm the next email arrives. After that, scans run automatically — no code changes needed.
+
+### Posting workflow (starting tomorrow)
+
+Each email tells you exactly what to publish:
+
+1. **X (within 30 min)** — labeled **📱 SINGLE TWEET** or **🧵 THREAD** with numbered tweets
+2. **X (4–6 hrs later)** — "What Most People Missed" block
+3. **X (once daily)** — comment on the journalist's **specific post link** (not their profile)
+4. **LinkedIn (Mon/Wed/Fri 09:00–11:00 PKT)** — flagship analysis when flagged POST TODAY
+
+Full schedule: [docs/POSTING_CADENCE.md](docs/POSTING_CADENCE.md)
+
 ## Primary setup: Cursor Automation
 
 **Full guide:** [docs/CURSOR_AUTOMATION.md](docs/CURSOR_AUTOMATION.md)
 
-1. Merge PR and apply `supabase/migrations/` SQL
-2. Add secrets in **Cursor Dashboard → Cloud Agents → Secrets**:
+1. Add secrets in **Cursor Dashboard → Cloud Agents → Secrets**:
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
    - `RESEND_API_KEY`, `RECIPIENT_EMAIL`
-3. Create automation at [cursor.com/automations/new](https://cursor.com/automations/new):
+2. Create automation at [cursor.com/automations/new](https://cursor.com/automations/new):
    - **Cron:** `0 1,4,7,10,13,16,19,22 * * *` (every 3 hours PKT)
    - **Prompt:** see [docs/CURSOR_AUTOMATION.md](docs/CURSOR_AUTOMATION.md)
-4. Click **Run now** to test
+3. Click **Run now** to test
 
 The Cloud Agent runs ingest → analyzes with its own model → sends your email brief.
 

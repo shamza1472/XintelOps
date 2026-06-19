@@ -5,6 +5,8 @@ This keeps costs inside your Cursor subscription (Cloud Agent usage).
 
 GitHub Actions is **optional** for ingest-only backup. The primary trigger is **Cursor Automation**.
 
+> **Note:** The legacy Supabase edge-function cron (`xintelops-scan`) has been disabled so you only receive emails from this Python + Cursor pipeline — no duplicate briefs.
+
 ---
 
 ## Architecture
