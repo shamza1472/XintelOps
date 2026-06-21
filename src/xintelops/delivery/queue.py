@@ -26,6 +26,25 @@ def format_pkt(dt: datetime) -> str:
     return dt.astimezone(PKT).strftime("%Y-%m-%d %H:%M PKT")
 
 
+def _ensure_datetime(value: datetime | str | None, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return fallback
+
+
+def _to_iso(value: datetime | str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def _format_draft(result: dict[str, Any], action: str) -> str:
     if action == "X THREAD":
         thread = result.get("x_thread")
@@ -161,7 +180,9 @@ def resolve_queue(
                 }
                 if prev_later_expires:
                     later_expires_at = prev_later_expires
-                later_active_from = previous.get("later_active_from") or later_active_from
+                later_active_from = _ensure_datetime(
+                    previous.get("later_active_from"), later_active_from
+                )
         else:
             queue["status"] = "carried_forward"
             expiry_label = format_pkt(prev_later_expires) if prev_later_expires else "next scan"
@@ -173,7 +194,9 @@ def resolve_queue(
             }
             if prev_later_expires:
                 later_expires_at = prev_later_expires
-            later_active_from = previous.get("later_active_from") or later_active_from
+            later_active_from = _ensure_datetime(
+                previous.get("later_active_from"), later_active_from
+            )
 
     source_package = build_source_package(result, post_title)
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
@@ -211,8 +234,8 @@ def resolve_queue(
         "later_signal": later_candidate.get("title") or "",
         "later_format": later_candidate.get("format") or "X POST",
         "later_draft": later_candidate.get("draft") or "",
-        "later_active_from": later_active_from.isoformat() if later_candidate.get("title") else None,
-        "later_expires_at": later_expires_at.isoformat() if later_candidate.get("title") else None,
+        "later_active_from": _to_iso(later_active_from) if later_candidate.get("title") else None,
+        "later_expires_at": _to_iso(later_expires_at) if later_candidate.get("title") else None,
         "later_status": queue["status"] if later_candidate.get("title") else "none",
         "later_replaced_by": post_title if queue["status"] == "replaced" else None,
         "later_reason": queue["reason"],
