@@ -53,7 +53,7 @@ Also apply SQL migrations in `supabase/migrations/` to your Supabase project.
 
 1. Go to **[cursor.com/automations/new](https://cursor.com/automations/new)**
 2. **Name:** `XIntelOps Intelligence Scan`
-3. **Repository:** `shamza1472/XintelOps` → branch `main` (after merge)
+3. **Repository:** `shamza1472/XintelOps` → branch **`main`**
 4. **Trigger:** Scheduled → cron:
 
    ```
@@ -65,13 +65,14 @@ Also apply SQL migrations in `supabase/migrations/` to your Supabase project.
 5. **Prompt** — paste this:
 
    ```
-   Run the XIntelOps intelligence scan workflow. Follow AGENTS.md exactly.
+   Run the XIntelOps operator brief workflow. Follow AGENTS.md exactly.
 
    1. python scripts/run_ingest.py
    2. Read artifacts/scan_bundle.txt, artifacts/scan_context.json, and prompts/cursor_scan.md
-   3. Perform the full verify → analyze → red team → content pipeline using your own reasoning (do NOT call OpenAI or Anthropic APIs)
-   4. Write valid JSON to artifacts/scan_result.json
-   5. python scripts/finalize_scan.py
+   3. Score all verified signals (edge, post_worthiness, forecast_value, niche_relevance) and force-rank with recommended actions
+   4. Write operator_decisions (post / watch / everyone_missing) and content drafts only where action requires
+   5. Write valid JSON to artifacts/scan_result.json
+   6. python scripts/finalize_scan.py
 
    If this is the first run and DB catalogs are empty, run python scripts/run_scan.py --seed first.
 

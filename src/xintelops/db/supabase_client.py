@@ -144,14 +144,18 @@ class SupabaseClient:
         output_id = output.data[0]["id"] if output.data else None
 
         journalist = result.get("journalist", {})
+        post_decision = (result.get("operator_decisions") or {}).get("one_signal_to_post") or {}
+        post_action = post_decision.get("action") or result.get("post_format", "SHORT POST")
         client.table("content_schedule").insert(
             {
                 "run_date": result.get("date_pkt"),
                 "session_label": result.get("scan_session"),
-                "morning_format": result.get("post_format", "SHORT POST"),
-                "morning_signal": signal.get("title", ""),
+                "morning_format": post_action,
+                "morning_signal": post_decision.get("title") or signal.get("title", ""),
                 "morning_draft": result.get("x_post", ""),
-                "midday_signal": signal.get("title", ""),
+                "midday_signal": (result.get("operator_decisions") or {})
+                .get("one_signal_everyone_missing", {})
+                .get("title", ""),
                 "midday_draft": result.get("what_most_missed", ""),
                 "evening_format": "journalist_comment",
                 "evening_target": journalist.get("target_post_url") or f"@{journalist.get('handle', '')}",

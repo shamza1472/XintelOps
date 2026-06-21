@@ -2,7 +2,9 @@
 
 **Intelligence That Acts.**
 
-Automated geopolitical intelligence pipeline. **Cursor Cloud Agent is the LLM brain** — no OpenAI or Anthropic API costs in production.
+Automated geopolitical **operator decision support** pipeline. **Cursor Cloud Agent is the LLM brain** — no OpenAI or Anthropic API costs in production.
+
+The email helps the operator (Hamza) decide what to post, thread, track, or ignore — in under 3 minutes.
 
 ```
 [Ingest scripts] → [Cursor Agent analysis] → [Supabase + Email brief] → [You post manually on X]

@@ -50,7 +50,7 @@ class PipelineRunner:
                     "feed_ids": [],
                     "core_anomaly": result.get("internal_brief", "")[:500],
                     "red_team_analysis": result.get("redteam_summary", ""),
-                    "strategist_implication": result.get("internal_brief", ""),
+                    "strategist_implication": str(result.get("operator_decisions", ""))[:500],
                     "status": "pending_review",
                     "x_post": result.get("x_post", ""),
                     "internal_brief": result.get("internal_brief", ""),
