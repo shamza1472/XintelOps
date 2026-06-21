@@ -52,6 +52,11 @@ def _render_operator_block(block: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Content source:</span> {_esc(li.get('content_source'))}</div>
       </div>
       <div class="op-section">
+        <div class="op-heading">Regional Priority Check</div>
+        <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('regional_priority') or {}).get('status'))}</div>
+        <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('regional_priority') or {}).get('reason'))}</div>
+      </div>
+      <div class="op-section">
         <div class="op-heading">Queue</div>
         <div class="op-line"><span class="op-key">Previous later-post:</span> {_esc(queue.get('previous_later_post') or 'None')}</div>
         <div class="op-line"><span class="op-key">Status:</span> {_esc(queue.get('status'))}</div>
@@ -76,8 +81,9 @@ def _render_ranked_signals(signals: list[dict[str, Any]]) -> str:
                 <div class="rank-title">{_esc(sig.get('title'))}</div>
                 <div class="rank-why">{_esc(sig.get('why_hamza_should_care'))}</div>
                 <div class="score-line">
-                  Edge {_esc(scores.get('edge'))} · Post {_esc(scores.get('post_worthiness'))} ·
-                  Forecast {_esc(scores.get('forecast_value'))} · Niche {_esc(scores.get('niche_relevance'))}
+                  Rank {_esc(sig.get('rank_score'))} · Edge {_esc(scores.get('edge'))} ·
+                  Post {_esc(scores.get('post_worthiness'))} · Forecast {_esc(scores.get('forecast_value'))} ·
+                  Niche {_esc(scores.get('niche_relevance'))} · T{_esc(sig.get('niche_tier'))}
                 </div>
                 <span class="tag {_action_tag_class(action)}">{_esc(action)}</span>
               </div>

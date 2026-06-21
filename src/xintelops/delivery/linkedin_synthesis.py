@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from xintelops.delivery.operator import TIER1_REGIONS, TIER2_REGIONS
+from xintelops.delivery.ranking import infer_niche_tier
 
 PKT = timezone(timedelta(hours=5))
 
@@ -35,12 +35,7 @@ SYNTHESIS_TOPICS = [
 
 
 def _region_tier(region: str, domain: str = "") -> int:
-    blob = f"{region} {domain}".lower()
-    if any(token in blob for token in TIER1_REGIONS):
-        return 1
-    if any(token in blob for token in TIER2_REGIONS):
-        return 2
-    return 3
+    return infer_niche_tier(region, domain)
 
 
 def _score_output(row: dict[str, Any]) -> int:

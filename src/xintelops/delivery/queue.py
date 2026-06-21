@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from xintelops.delivery.ranking import compute_rank_score
+
 PKT = timezone(timedelta(hours=5))
 LATER_WINDOW_HOURS = 4
 LATER_EXPIRY_HOURS = 6
@@ -92,18 +94,13 @@ def _pick_later_candidate(result: dict[str, Any]) -> dict[str, Any]:
     return {"title": "", "draft": "", "format": "X POST"}
 
 
-def _priority_score(result: dict[str, Any]) -> int:
+def _priority_score(result: dict[str, Any]) -> float:
     post = (result.get("operator_decisions") or {}).get("one_signal_to_post") or {}
     title = post.get("title")
     for sig in result.get("ranked_signals") or []:
         if sig.get("title") == title:
-            scores = sig.get("scores") or {}
-            return (
-                int(scores.get("edge", 0))
-                + int(scores.get("post_worthiness", 0))
-                + int(scores.get("niche_relevance", 0))
-            )
-    return 0
+            return float(sig.get("rank_score") or compute_rank_score(sig).get("rank_score", 0))
+    return 0.0
 
 
 def resolve_queue(
@@ -150,7 +147,7 @@ def resolve_queue(
         elif post_title and post_title != prev_later_signal:
             rank1 = (result.get("ranked_signals") or [{}])[0]
             tier = rank1.get("niche_tier", 3)
-            if current_priority >= 18 or tier == 1:
+            if current_priority >= 70 or tier == 1:
                 queue["status"] = "replaced"
                 queue["reason"] = f"Previous later-post replaced by higher-priority signal: {post_title}."
             else:
@@ -195,6 +192,7 @@ def resolve_queue(
         },
         "linkedin": result.get("linkedin_block") or {},
         "queue": queue,
+        "regional_priority": result.get("regional_priority_check") or {},
     }
 
     queue_status = queue["status"]

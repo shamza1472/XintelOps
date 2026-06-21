@@ -69,6 +69,44 @@ Also assign `niche_tier`: **1**, **2**, or **3**
 
 **Scores are internal.** Do not over-explain scoring in drafts. They appear only in the ranked list.
 
+### FINAL RANK FORMULA (applied at finalize — do not let NATO/Ukraine dominate)
+
+Weighted base (max 100):
+- Niche Relevance **35%**
+- Edge **25%**
+- Forecast Value **20%**
+- Post Worthiness **15%**
+- Confidence **5%**
+
+Boosts (additive):
+- Tier 1 theater (China, Pakistan, India, Gulf, Iran, Levant, Red Sea, Horn): **+25**
+- Tier 2 theater (Central Asia, Caucasus, East Africa, ASEAN, Indian Ocean): **+15**
+- Strategic theme (ports, shipping, chokepoints, ISR, EW, drones, rare earths, energy, cables, sanctions, espionage): **+10**
+
+Penalty:
+- Generic NATO/Ukraine/Europe battlefield content without second-order niche link: **-20**
+
+### HARD POST QUOTA
+
+Top recommended post must prefer **Tier 1 or Tier 2** signals.
+
+Ukraine/NATO/Europe may win only if:
+1. No Tier 1/2 signal exists; OR
+2. Clear second-order link to China, Gulf, Red Sea, South Asia, Horn, energy, shipping, sanctions, or defense supply chains.
+
+If a Western signal wins, set `second_order_relevance: true` and `regional_override_reason` explaining why it beat the filter.
+
+Generic Ukraine/NATO signals → `ARCHIVE` or `MONITOR`, never the main post.
+
+### SELECTION QUESTIONS (ask before assigning X POST / X THREAD)
+
+1. Does this build XIntelOps identity in China–Gulf–Red Sea–Horn–South Asia?
+2. Is it under-covered vs mainstream accounts?
+3. Does it connect logistics, energy, ports, ISR, drones, sanctions, or supply chains?
+4. Would posting this differentiate us from a generic Western defense account?
+
+If mostly no → do not recommend as main post.
+
 ---
 
 ## STAGE 3 — RECOMMENDED ACTION (one per signal)
@@ -198,6 +236,8 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
       },
       "recommended_action": "X THREAD",
       "action_rationale": "",
+      "second_order_relevance": false,
+      "regional_override_reason": "",
       "confidence": "HIGH",
       "crisis_flag": false
     }
@@ -206,7 +246,8 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
     "one_signal_to_post": {
       "title": "",
       "action": "X THREAD",
-      "why": ""
+      "why": "",
+      "regional_override_reason": ""
     },
     "one_signal_to_watch": {
       "title": "",

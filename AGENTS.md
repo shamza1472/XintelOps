@@ -22,6 +22,8 @@ python scripts/finalize_scan.py
 ## Required fields
 
 - `ranked_signals` — force-ranked with scores + one `recommended_action` each
+- **Niche bias:** Tier 1/2 theaters beat generic NATO/Ukraine unless `second_order_relevance: true`
+- Western generic signals → `ARCHIVE`/`MONITOR` only; set `regional_override_reason` if Western signal wins
 - `operator_decisions` — post / watch / everyone_missing
 - `source_package` — min 2 URLs with `why_supports` for the post-now recommendation
 - `source_citations` — same sources, used in email source block

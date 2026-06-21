@@ -12,23 +12,28 @@ from xintelops.ingest.base import IngestedItem
 
 USER_AGENT = "XIntelOps Intelligence Engine/2.0"
 
-# Tier 0/1 direct feeds mirrored from the production edge function
+# Niche-priority feeds polled before generic Western wire sources
 DIRECT_SOURCES = [
-    {"url": "https://feeds.reuters.com/reuters/topNews", "name": "Reuters"},
-    {"url": "https://feeds.reuters.com/reuters/worldNews", "name": "Reuters World"},
-    {"url": "https://apnews.com/index.rss", "name": "AP News"},
-    {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "name": "BBC World"},
-    {"url": "https://www.aljazeera.com/xml/rss/all.xml", "name": "Al Jazeera"},
-    {"url": "https://tass.com/rss/v2.xml", "name": "TASS"},
-    {"url": "https://en.irna.ir/rss", "name": "IRNA"},
-    {"url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=10", "name": "DoD News"},
-    {"url": "https://news.un.org/feed/subscribe/en/news/all/rss.xml", "name": "UN News"},
-    {"url": "https://www.sipri.org/rss", "name": "SIPRI"},
+    {"url": "https://en.irna.ir/rss", "name": "IRNA", "priority": 100},
+    {"url": "https://www.aljazeera.com/xml/rss/all.xml", "name": "Al Jazeera", "priority": 95},
+    {"url": "https://www.sipri.org/rss", "name": "SIPRI", "priority": 90},
+    {"url": "https://feeds.reuters.com/reuters/worldNews", "name": "Reuters World", "priority": 70},
+    {"url": "https://feeds.reuters.com/reuters/topNews", "name": "Reuters", "priority": 60},
+    {"url": "https://apnews.com/index.rss", "name": "AP News", "priority": 55},
+    {"url": "https://news.un.org/feed/subscribe/en/news/all/rss.xml", "name": "UN News", "priority": 50},
+    {"url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=10", "name": "DoD News", "priority": 45},
+    {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "name": "BBC World", "priority": 40},
+    {"url": "https://tass.com/rss/v2.xml", "name": "TASS", "priority": 35},
 ]
 
 GOOGLE_NEWS_QUERIES = [
-    {"url": "https://news.google.com/rss/search?q=(site:reuters.com+OR+site:apnews.com)+military+OR+strike&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Military/Conflict"},
-    {"url": "https://news.google.com/rss/search?q=(site:csis.org+OR+site:carnegieendowment.org+OR+site:rand.org)&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Think Tanks"},
+    {"url": "https://news.google.com/rss/search?q=China+Taiwan+strait+OR+South+China+Sea+OR+PLA&hl=en-US&gl=US&ceid=US:en", "name": "GNews: China/Indo-Pacific", "priority": 100},
+    {"url": "https://news.google.com/rss/search?q=Red+Sea+OR+Hormuz+OR+Gulf+shipping+OR+maritime+chokepoint&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Gulf/Red Sea Maritime", "priority": 95},
+    {"url": "https://news.google.com/rss/search?q=Pakistan+OR+India+defense+procurement+OR+missile&hl=en-US&gl=US&ceid=US:en", "name": "GNews: South Asia", "priority": 90},
+    {"url": "https://news.google.com/rss/search?q=Horn+of+Africa+OR+Somalia+OR+Djibouti+OR+Ethiopia+security&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Horn/East Africa", "priority": 85},
+    {"url": "https://news.google.com/rss/search?q=Iran+sanctions+OR+Central+Asia+OR+rare+earth+OR+undersea+cable&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Iran/Central Asia/Supply Chain", "priority": 80},
+    {"url": "https://news.google.com/rss/search?q=(site:csis.org+OR+site:carnegieendowment.org+OR+site:rand.org)+Indo-Pacific+OR+Gulf&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Think Tanks Niche", "priority": 75},
+    {"url": "https://news.google.com/rss/search?q=(site:reuters.com+OR+site:apnews.com)+military+OR+strike&hl=en-US&gl=US&ceid=US:en", "name": "GNews: Military/Conflict", "priority": 30},
 ]
 
 
@@ -40,7 +45,12 @@ class HTMLScraper:
 
     def fetch(self) -> list[IngestedItem]:
         items: list[IngestedItem] = []
-        for source in DIRECT_SOURCES + GOOGLE_NEWS_QUERIES:
+        sources = sorted(
+            DIRECT_SOURCES + GOOGLE_NEWS_QUERIES,
+            key=lambda s: s.get("priority", 50),
+            reverse=True,
+        )
+        for source in sources:
             item = self._fetch_source(source["url"], source["name"])
             if item:
                 items.append(item)

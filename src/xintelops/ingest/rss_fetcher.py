@@ -10,6 +10,7 @@ import feedparser
 import requests
 
 from xintelops.config import Settings, get_settings
+from xintelops.delivery.ranking import source_priority_score
 from xintelops.ingest.base import IngestedItem
 
 USER_AGENT = "XIntelOps Intelligence Engine/2.0"
@@ -36,7 +37,16 @@ class RSSFetcher:
 
     def fetch(self) -> list[IngestedItem]:
         items: list[IngestedItem] = []
-        for row in self.sources:
+        ordered = sorted(
+            self.sources,
+            key=lambda row: source_priority_score(
+                row.get("Source Name", ""),
+                row.get("Region", ""),
+                row.get("Domain", ""),
+            ),
+            reverse=True,
+        )
+        for row in ordered:
             feed_url = (row.get("Alt Feed / RSS (if any)") or "").strip()
             if not feed_url:
                 continue
