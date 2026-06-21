@@ -42,6 +42,8 @@ class PipelineRunner:
 
     def finalize(self, result: dict[str, Any]) -> dict[str, Any]:
         result = enrich_result(result)
+        if self.db.client:
+            result = self.db.resolve_operator_queue(result)
         synth_id = None
         legacy_ids = {"raw_signal_id": None, "output_id": None, "pipeline_log_id": None}
         if self.db.client:

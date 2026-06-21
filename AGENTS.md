@@ -2,73 +2,50 @@
 
 This repo runs as a **Cursor Cloud Agent automation**. The agent IS the LLM — no OpenAI or Anthropic API calls in production.
 
-**Mode:** Operator Decision Support (vNext). The email recipient is Hamza (the operator), not the public.
+**Mode:** Operator Decision Support. Email recipient is Hamza (the operator).
 
 ## Standard scan workflow
-
-When triggered (scheduled or manual), execute in order:
 
 ```bash
 pip install -r requirements.txt
 python scripts/run_ingest.py
 ```
 
-Then read:
-- `artifacts/scan_bundle.txt`
-- `artifacts/scan_context.json`
-- `prompts/cursor_scan.md`
+Read `artifacts/scan_bundle.txt`, `artifacts/scan_context.json`, `prompts/cursor_scan.md`.
 
-Produce analysis and write JSON to `artifacts/scan_result.json` following the schema in `prompts/cursor_scan.md`.
-
-### Required fields (vNext)
-
-- `ranked_signals` — all verified signals, force-ranked with scores and one `recommended_action` each
-- `operator_decisions` — `one_signal_to_post`, `one_signal_to_watch`, `one_signal_everyone_missing`
-- Scores per signal: `edge`, `post_worthiness`, `forecast_value`, `niche_relevance` (1–10)
-- `why_hamza_should_care` — operator rationale, not news summary
-- Content drafts only for `X POST`, `X THREAD`, or `LINKEDIN` actions
-- `journalist.target_post_url` — specific post link (not profile)
-- `source_citations` — URLs for top ranked signals
-
-Then:
+Write `artifacts/scan_result.json` then:
 
 ```bash
 python scripts/finalize_scan.py
 ```
 
-## One-time seed (first run only)
+## Required fields
 
-```bash
-python scripts/run_scan.py --seed
-```
+- `ranked_signals` — force-ranked with scores + one `recommended_action` each
+- `operator_decisions` — post / watch / everyone_missing
+- `source_package` — min 2 URLs with `why_supports` for the post-now recommendation
+- `source_citations` — same sources, used in email source block
+- Content drafts only for `X POST`, `X THREAD`, or `LINKEDIN` actions
+- LinkedIn: always draft on Mon/Wed/Fri (200–350 words) unless crisis-only exception
+- Journalist: `target_post_url` (specific post, not profile)
 
-## Secrets (Cursor Cloud dashboard)
+## Queue (handled at finalize)
 
-Add in **Cursor → Cloud Agents → Secrets** (not GitHub, not .env):
+The pipeline reads the previous `content_schedule` row and resolves:
+- carried forward
+- replaced by higher-priority signal
+- expired and archived
 
-| Secret | Purpose |
-|---|---|
-| `SUPABASE_URL` | Database |
-| `SUPABASE_SERVICE_ROLE_KEY` | Database writes |
-| `RESEND_API_KEY` | Email briefs |
-| `RECIPIENT_EMAIL` | Where briefs go |
+Never output vague “post in 4–6 hours” — `what_most_missed` becomes the tracked later-post.
 
-Do **not** add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` unless using legacy `LLM_PROVIDER=anthropic` mode.
+## Secrets
 
-## Constraints
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `RECIPIENT_EMAIL`
 
-- Never commit secrets or `.env`
-- Never auto-post to X — email brief is human-in-the-loop
-- Optimize for decision quality, not collection volume
-- Operator should finish reading the email in under 3 minutes
-- If ingestion returns empty bundle, report failure; do not fabricate signals
-
-## Reference files
+## Reference
 
 | File | Role |
 |---|---|
-| `data/xintel_sources.csv` | OSINT/news sources |
-| `data/journalists.csv` | 47-analyst engagement roster |
-| `prompts/cursor_scan.md` | Operator scoring prompt + JSON schema |
-| `docs/POSTING_CADENCE.md` | When to post from the brief |
-| `docs/CURSOR_AUTOMATION.md` | Scheduled automation setup |
+| `prompts/cursor_scan.md` | Operator scoring + JSON schema |
+| `docs/POSTING_CADENCE.md` | Posting actions from the brief |
+| `docs/CURSOR_AUTOMATION.md` | Scheduler setup |

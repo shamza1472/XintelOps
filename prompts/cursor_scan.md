@@ -63,7 +63,11 @@ Boost Tier 2: Central Asia, Caucasus, East Africa, ASEAN
 
 Reduce for: generic NATO statements, routine European politics, US domestic noise, recycled press conferences
 
+Tier 3 (Europe / Ukraine / Russia): only when the story has strong global defense-industrial, energy, Black Sea, sanctions, or China-linked implications.
+
 Also assign `niche_tier`: **1**, **2**, or **3**
+
+**Scores are internal.** Do not over-explain scoring in drafts. They appear only in the ranked list.
 
 ---
 
@@ -105,8 +109,43 @@ Draft content **only** for signals whose action is `X POST`, `X THREAD`, or `LIN
 - **X POST**: `x_post` under 280 chars; `x_thread` = null; `post_format` = `SHORT POST`
 - **X THREAD**: `x_thread` array of 5–8 tweets; `post_format` = `THREAD`
 - **LINKEDIN**: Mon/Wed/Fri only — 200–350 word post when action is LINKEDIN or `linkedin_today=true`
-- **what_most_missed**: angle for secondary X post (from highest-edge signal)
+- **what_most_missed**: becomes the tracked **later-post** candidate (saved to `content_schedule`, not a vague “post in 4–6 hours” instruction)
 - Skip drafting for IGNORE / ARCHIVE / MONITOR signals
+
+---
+
+## STAGE 5b — SOURCE PACKAGE (required for every public post)
+
+Every X POST, X THREAD, or LinkedIn draft must include `source_package` — an array of sources **with URLs the operator can click before posting**:
+
+```json
+{
+  "name": "Reuters",
+  "url": "https://...",
+  "published_date": "YYYY-MM-DD",
+  "tier": "L1",
+  "why_supports": "Confirms the port-access claim with on-record officials"
+}
+```
+
+Minimum 2 sources for the post-now recommendation. Never leave the operator hunting for links.
+
+---
+
+## STAGE 5c — LINKEDIN RULES
+
+Scheduled days: **Monday, Wednesday, Friday** · window **09:00–11:00 PKT**
+
+On Mon/Wed/Fri: **always** generate a LinkedIn-ready article (200–350 words) unless zero intelligence exists.
+
+Priority:
+1. Fresh verified Tier-1 signal from this scan
+2. Fresh verified Tier-2 signal from this scan
+3. (Finalize step may synthesize from prior `intelligence_outputs` if you leave `linkedin_post` empty)
+
+On other days: set `linkedin_today=false`. Do not write a full LinkedIn post unless `crisis_detected=true`.
+
+Non-scheduled day operator line: `LinkedIn: Not scheduled today. Next LinkedIn window: [day] 09:00–11:00 PKT.`
 
 ---
 
@@ -217,7 +256,10 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
   },
   "redteam_summary": "",
   "source_citations": [
-    {"name": "", "url": "", "published_date": "YYYY-MM-DD", "tier": "L1"}
+    {"name": "", "url": "", "published_date": "YYYY-MM-DD", "tier": "L1", "why_supports": ""}
+  ],
+  "source_package": [
+    {"name": "", "url": "", "published_date": "YYYY-MM-DD", "tier": "L1", "why_supports": ""}
   ],
   "posting_cadence": {
     "x_primary": "",
@@ -232,3 +274,5 @@ Use PKT (UTC+5) for `date_pkt` and `time_pkt`.
 
 `ranked_signals` must include **all** verified signals, force-ranked. `top_signal` should mirror rank #1.
 For THREAD: `x_thread` is a JSON array; email displays as `1/`, `2/`, … with 🧵.
+
+At finalize, the pipeline resolves queue conflicts against the previous `content_schedule` row (carried forward / replaced / expired). Do not invent untracked “post later” instructions.

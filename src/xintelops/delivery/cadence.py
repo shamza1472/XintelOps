@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from xintelops.delivery.linkedin_synthesis import build_linkedin_block
 from xintelops.delivery.operator import enrich_operator_result
+from xintelops.delivery.queue import resolve_queue
 
 
 def is_linkedin_day(day_name: str) -> bool:
@@ -23,35 +25,31 @@ def next_linkedin_day(day_name: str) -> str:
 
 
 def build_posting_cadence(result: dict[str, Any]) -> dict[str, str]:
-    day = str(result.get("day_of_week") or "")
-    linkedin_today = bool(result.get("linkedin_today")) or is_linkedin_day(day)
-    next_li = next_linkedin_day(day)
-
-    post_decision = (result.get("operator_decisions") or {}).get("one_signal_to_post") or {}
-    post_action = str(post_decision.get("action") or result.get("post_format") or "X POST").upper()
-    x_label = "🧵 THREAD" if post_action in {"X THREAD", "THREAD"} else "📱 SINGLE TWEET"
-
+    block = result.get("operator_block") or {}
+    x_block = block.get("x") or {}
+    li_block = block.get("linkedin") or {}
+    queue = block.get("queue") or {}
     journalist = result.get("journalist") or {}
     post_url = journalist.get("target_post_url") or journalist.get("post_url") or "see email"
 
-    watch = (result.get("operator_decisions") or {}).get("one_signal_to_watch") or {}
-    watch_title = watch.get("title") or "top forecast signal"
-
     return {
-        "x_primary": f"{post_action}: {post_decision.get('title', 'top signal')} — post within 30 min ({x_label}).",
-        "x_secondary": "4–6 hrs later: post the 'Everyone Is Missing' angle or secondary ranked signal.",
+        "x_primary": (
+            f"{x_block.get('action', 'X POST')}: {x_block.get('post_now', 'top signal')} "
+            f"— deadline {x_block.get('deadline', '30 min')}"
+        ),
+        "x_secondary": queue.get("reason") or "No tracked later-post.",
         "x_engagement": (
             f"Reply on journalist post: {post_url}"
             if not journalist.get("engagement_skipped")
             else "Skip journalist engagement — no relevant original post."
         ),
         "linkedin": (
-            f"Post today 09:00–11:00 PKT — check ranked signals with LINKEDIN action."
-            if linkedin_today
-            else f"No LinkedIn window today. Next: {next_li}. Monitor: {watch_title}."
+            f"{li_block.get('status', 'Not scheduled today')}. "
+            f"Next window: {li_block.get('next_window', '')}. "
+            f"Action: {li_block.get('todays_action', '')}"
         ),
-        "linkedin_today": str(linkedin_today).lower(),
-        "next_linkedin_day": next_li,
+        "linkedin_today": str(li_block.get("status") == "Scheduled today").lower(),
+        "next_linkedin_day": li_block.get("next_window", next_linkedin_day(str(result.get("day_of_week") or ""))),
     }
 
 
@@ -78,9 +76,6 @@ def enrich_result(result: dict[str, Any]) -> dict[str, Any]:
             nxt = next_linkedin_day(day)
             result["linkedin_post"] = f"No LinkedIn post today ({day}). Next window: {nxt}."
 
-    if not result.get("posting_cadence"):
-        result["posting_cadence"] = build_posting_cadence(result)
-
     if not result.get("source_citations"):
         citations = []
         for sig in result.get("ranked_signals") or []:
@@ -90,7 +85,8 @@ def enrich_result(result: dict[str, Any]) -> dict[str, Any]:
                         "name": sig.get("source") or "Source",
                         "url": sig.get("url"),
                         "published_date": sig.get("event_date") or "Unknown",
-                        "tier": "L1",
+                        "tier": f"T{sig.get('niche_tier', 2)}",
+                        "why_supports": sig.get("why_hamza_should_care") or "",
                     }
                 )
         if not citations:
@@ -102,6 +98,7 @@ def enrich_result(result: dict[str, Any]) -> dict[str, Any]:
                         "url": signal.get("url"),
                         "published_date": signal.get("event_date") or "Unknown",
                         "tier": signal.get("tier") or "L1",
+                        "why_supports": signal.get("summary") or "",
                     }
                 )
         result["source_citations"] = citations[:5]
@@ -116,5 +113,13 @@ def enrich_result(result: dict[str, Any]) -> dict[str, Any]:
                 f"F{scores.get('forecast_value')} → {sig.get('recommended_action')}"
             )
         result["internal_brief"] = "\n".join(lines)
+
+    if not result.get("linkedin_block"):
+        result["linkedin_block"] = build_linkedin_block(result, [])
+    if not result.get("operator_block"):
+        result = resolve_queue(result, None)
+
+    if not result.get("posting_cadence"):
+        result["posting_cadence"] = build_posting_cadence(result)
 
     return result

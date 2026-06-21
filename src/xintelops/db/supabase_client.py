@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import csv
+import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from supabase import Client, create_client
 
 from xintelops.config import Settings, get_settings
+from xintelops.delivery.linkedin_synthesis import build_linkedin_block
+from xintelops.delivery.queue import resolve_queue
+
+PKT = timezone(timedelta(hours=5))
 
 
 class SupabaseClient:
@@ -94,6 +100,49 @@ class SupabaseClient:
         rows = result.data or []
         return rows[0]["id"] if rows else None
 
+    def get_latest_content_schedule(self) -> dict[str, Any] | None:
+        try:
+            result = (
+                self._require_client()
+                .table("content_schedule")
+                .select("*")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            return rows[0] if rows else None
+        except Exception:
+            return None
+
+    def get_intelligence_outputs_for_synthesis(self, days: int = 7, limit: int = 30) -> list[dict[str, Any]]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        try:
+            result = (
+                self._require_client()
+                .table("intelligence_outputs")
+                .select(
+                    "id, source_name, region, domain, confidence, crisis_flag, "
+                    "internal_brief, implications_7d, what_most_people_missed, linkedin_post, created_at"
+                )
+                .gte("created_at", cutoff)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return result.data or []
+        except Exception:
+            return []
+
+    def resolve_operator_queue(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Load prior queue, resolve conflicts, build LinkedIn block, attach content_queue."""
+        previous = self.get_latest_content_schedule()
+        outputs = self.get_intelligence_outputs_for_synthesis(days=7)
+        if not outputs:
+            outputs = self.get_intelligence_outputs_for_synthesis(days=30)
+        result["linkedin_block"] = build_linkedin_block(result, outputs)
+        return resolve_queue(result, previous)
+
     def dual_write_legacy(self, result: dict[str, Any]) -> dict[str, int | None]:
         if not self.settings.dual_write_legacy:
             return {"raw_signal_id": None, "output_id": None, "pipeline_log_id": None}
@@ -146,26 +195,52 @@ class SupabaseClient:
         journalist = result.get("journalist", {})
         post_decision = (result.get("operator_decisions") or {}).get("one_signal_to_post") or {}
         post_action = post_decision.get("action") or result.get("post_format", "SHORT POST")
-        client.table("content_schedule").insert(
-            {
-                "run_date": result.get("date_pkt"),
-                "session_label": result.get("scan_session"),
-                "morning_format": post_action,
-                "morning_signal": post_decision.get("title") or signal.get("title", ""),
-                "morning_draft": result.get("x_post", ""),
-                "midday_signal": (result.get("operator_decisions") or {})
-                .get("one_signal_everyone_missing", {})
-                .get("title", ""),
-                "midday_draft": result.get("what_most_missed", ""),
-                "evening_format": "journalist_comment",
-                "evening_target": journalist.get("target_post_url") or f"@{journalist.get('handle', '')}",
-                "evening_draft": journalist.get("comment_draft", ""),
-                "linkedin_post_day": result.get("day_of_week", ""),
-                "linkedin_type": "flagship_analysis" if result.get("linkedin_today") else "not_today",
-                "linkedin_draft": result.get("linkedin_post", ""),
-                "intelligence_output_id": output_id,
-            }
-        ).execute()
+        queue = result.get("content_queue") or {}
+        linkedin_block = result.get("linkedin_block") or {}
+
+        schedule_payload = {
+            "run_date": result.get("date_pkt"),
+            "run_date_pkt": result.get("date_pkt"),
+            "session_label": result.get("scan_session"),
+            "morning_format": post_action,
+            "morning_signal": post_decision.get("title") or signal.get("title", ""),
+            "morning_draft": result.get("x_post", ""),
+            "midday_signal": queue.get("later_signal")
+            or (result.get("operator_decisions") or {})
+            .get("one_signal_everyone_missing", {})
+            .get("title", ""),
+            "midday_draft": queue.get("later_draft") or result.get("what_most_missed", ""),
+            "evening_format": "journalist_comment",
+            "evening_target": journalist.get("target_post_url") or f"@{journalist.get('handle', '')}",
+            "evening_draft": journalist.get("comment_draft", ""),
+            "linkedin_post_day": result.get("day_of_week", ""),
+            "linkedin_type": linkedin_block.get("content_source")
+            or ("flagship_analysis" if result.get("linkedin_today") else "not_today"),
+            "linkedin_draft": linkedin_block.get("article_post") or result.get("linkedin_post", ""),
+            "x_post": result.get("x_post", ""),
+            "x_thread": json.dumps(result.get("x_thread")) if isinstance(result.get("x_thread"), list) else result.get("x_thread"),
+            "what_most_people_missed": result.get("what_most_missed", ""),
+            "journalist_comment": journalist.get("comment_draft", ""),
+            "intelligence_output_id": output_id,
+            "active_now_signal": queue.get("active_now_signal"),
+            "active_now_format": queue.get("active_now_format"),
+            "active_now_draft": queue.get("active_now_draft"),
+            "active_now_deadline": queue.get("active_now_deadline"),
+            "active_now_expires_at": queue.get("active_now_expires_at"),
+            "active_now_reason": queue.get("active_now_reason"),
+            "active_now_source_package": queue.get("active_now_source_package"),
+            "later_signal": queue.get("later_signal"),
+            "later_format": queue.get("later_format"),
+            "later_draft": queue.get("later_draft"),
+            "later_active_from": queue.get("later_active_from"),
+            "later_expires_at": queue.get("later_expires_at"),
+            "later_status": queue.get("later_status"),
+            "later_replaced_by": queue.get("later_replaced_by"),
+            "later_reason": queue.get("later_reason"),
+            "queue_status": queue.get("queue_status"),
+            "operator_action_summary": queue.get("operator_action_summary"),
+        }
+        client.table("content_schedule").insert(schedule_payload).execute()
 
         client.table("journalist_engagements").insert(
             {
