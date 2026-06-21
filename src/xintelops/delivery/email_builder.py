@@ -34,7 +34,23 @@ def _render_operator_block(block: dict[str, Any]) -> str:
     return f"""
     <div class="op-block">
       <div class="op-section">
-        <div class="op-heading">X</div>
+        <div class="op-heading">Best Immediate Post</div>
+        <div class="op-line"><strong>{_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('title'))}</strong></div>
+        <div class="op-line"><span class="op-key">Action:</span> {_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('action'))} · Momentum {_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('live_momentum'))}/10</div>
+        <div class="op-line">{_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('why'))}</div>
+      </div>
+      <div class="op-section">
+        <div class="op-heading">Best Strategic Lead</div>
+        <div class="op-line"><strong>{_esc((block.get('immediate_vs_strategic') or {}).get('strategic', {}).get('title'))}</strong></div>
+        <div class="op-line">{_esc((block.get('immediate_vs_strategic') or {}).get('strategic', {}).get('why'))}</div>
+      </div>
+      <div class="op-section">
+        <div class="op-heading">Best Archive Signal</div>
+        <div class="op-line"><strong>{_esc((block.get('immediate_vs_strategic') or {}).get('archive', {}).get('title'))}</strong></div>
+        <div class="op-line">{_esc((block.get('immediate_vs_strategic') or {}).get('archive', {}).get('why'))}</div>
+      </div>
+      <div class="op-section">
+        <div class="op-heading">X — post now</div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(x.get('action'))}</div>
         <div class="op-line"><span class="op-key">Format:</span> {_esc(x.get('format'))}</div>
         <div class="op-line"><span class="op-key">Post now:</span> <strong>{_esc(x.get('post_now'))}</strong></div>
@@ -50,6 +66,11 @@ def _render_operator_block(block: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Next window:</span> {_esc(li.get('next_window'))}</div>
         <div class="op-line"><span class="op-key">Today's action:</span> {_esc(li.get('todays_action'))}</div>
         <div class="op-line"><span class="op-key">Content source:</span> {_esc(li.get('content_source'))}</div>
+      </div>
+      <div class="op-section">
+        <div class="op-heading">Live Momentum Check</div>
+        <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('live_momentum') or {}).get('status'))}</div>
+        <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('live_momentum') or {}).get('reason'))}</div>
       </div>
       <div class="op-section">
         <div class="op-heading">Regional Priority Check</div>
@@ -81,9 +102,10 @@ def _render_ranked_signals(signals: list[dict[str, Any]]) -> str:
                 <div class="rank-title">{_esc(sig.get('title'))}</div>
                 <div class="rank-why">{_esc(sig.get('why_hamza_should_care'))}</div>
                 <div class="score-line">
-                  Rank {_esc(sig.get('rank_score'))} · Edge {_esc(scores.get('edge'))} ·
+                  Rank {_esc(sig.get('rank_score'))} · Momentum {_esc(scores.get('live_momentum'))} · Edge {_esc(scores.get('edge'))} ·
                   Post {_esc(scores.get('post_worthiness'))} · Forecast {_esc(scores.get('forecast_value'))} ·
                   Niche {_esc(scores.get('niche_relevance'))} · T{_esc(sig.get('niche_tier'))}
+                  {' · 🚨 LIVE' if sig.get('live_momentum_override') else ''}
                 </div>
                 <span class="tag {_action_tag_class(action)}">{_esc(action)}</span>
               </div>

@@ -5,20 +5,9 @@ from typing import Any
 from xintelops.delivery.ranking import (
     apply_ranking_bias,
     infer_niche_tier,
+    select_archive_signal,
     select_post_with_quota,
-)
-
-VALID_ACTIONS = frozenset(
-    {
-        "IGNORE",
-        "ARCHIVE",
-        "MONITOR",
-        "X POST",
-        "X THREAD",
-        "LINKEDIN",
-        "NEWSLETTER CANDIDATE",
-        "HIGH PRIORITY TRACKING",
-    }
+    select_strategic_lead,
 )
 
 
@@ -32,7 +21,11 @@ def _clamp_score(value: Any, default: int = 5) -> int:
 
 def _normalize_action(action: Any) -> str:
     text = str(action or "MONITOR").upper().strip()
-    if text in VALID_ACTIONS:
+    valid = {
+        "IGNORE", "ARCHIVE", "MONITOR", "X POST", "X THREAD", "LINKEDIN",
+        "NEWSLETTER CANDIDATE", "HIGH PRIORITY TRACKING",
+    }
+    if text in valid:
         return text
     if text in {"XPOST", "X-POST", "SHORT POST", "POST"}:
         return "X POST"
@@ -71,6 +64,7 @@ def _signal_from_legacy(top: dict[str, Any], rank: int = 1) -> dict[str, Any]:
             "post_worthiness": 7,
             "forecast_value": 6,
             "niche_relevance": 7 if infer_niche_tier(region) <= 2 else 4,
+            "live_momentum": 5,
         },
         "recommended_action": action,
         "action_rationale": "Legacy scan format — regenerate for full operator scoring.",
@@ -80,7 +74,7 @@ def _signal_from_legacy(top: dict[str, Any], rank: int = 1) -> dict[str, Any]:
 
 
 def enrich_operator_result(result: dict[str, Any]) -> dict[str, Any]:
-    """Normalize operator fields, apply niche ranking bias, enforce regional post quota."""
+    """Normalize operator fields, apply ranking with live momentum, select immediate vs strategic."""
     top = dict(result.get("top_signal") or {})
     ranked = list(result.get("ranked_signals") or [])
 
@@ -101,8 +95,7 @@ def enrich_operator_result(result: dict[str, Any]) -> dict[str, Any]:
                 "url": item.get("url") or "",
                 "region": region,
                 "domain": domain,
-                "niche_tier": item.get("niche_tier")
-                or infer_niche_tier(region, domain, title),
+                "niche_tier": item.get("niche_tier") or infer_niche_tier(region, domain, title),
                 "event_date": item.get("event_date") or "",
                 "why_hamza_should_care": item.get("why_hamza_should_care") or item.get("summary") or "",
                 "scores": {
@@ -110,6 +103,7 @@ def enrich_operator_result(result: dict[str, Any]) -> dict[str, Any]:
                     "post_worthiness": _clamp_score(scores.get("post_worthiness")),
                     "forecast_value": _clamp_score(scores.get("forecast_value")),
                     "niche_relevance": _clamp_score(scores.get("niche_relevance")),
+                    "live_momentum": _clamp_score(scores.get("live_momentum"), 5),
                 },
                 "recommended_action": _normalize_action(item.get("recommended_action")),
                 "action_rationale": item.get("action_rationale") or "",
@@ -124,53 +118,61 @@ def enrich_operator_result(result: dict[str, Any]) -> dict[str, Any]:
     result["ranked_signals"] = normalized
 
     decisions = dict(result.get("operator_decisions") or {})
-    selected, priority_check = select_post_with_quota(normalized, decisions.get("one_signal_to_post"))
+    immediate, regional_check, momentum_check = select_post_with_quota(
+        normalized, decisions.get("one_signal_to_post") or decisions.get("best_immediate_post")
+    )
+    strategic = select_strategic_lead(normalized, immediate)
+    archive = select_archive_signal(normalized, immediate, strategic)
 
-    post_action = selected.get("recommended_action", "X POST")
+    post_action = immediate.get("recommended_action", "X POST")
     if post_action not in {"X POST", "X THREAD"}:
-        post_action = "X POST" if post_action not in {"LINKEDIN"} else post_action
+        post_action = "X POST"
 
+    decisions["best_immediate_post"] = {
+        "title": immediate.get("title", ""),
+        "action": post_action,
+        "why": immediate.get("why_hamza_should_care") or immediate.get("action_rationale", ""),
+        "live_momentum": immediate.get("live_momentum", 0),
+        "ranking_mode": immediate.get("ranking_mode", "normal"),
+    }
+    decisions["best_strategic_lead"] = {
+        "title": strategic.get("title", ""),
+        "why": strategic.get("why_hamza_should_care") or strategic.get("action_rationale", ""),
+        "horizon": "7-30 days",
+    }
+    decisions["best_archive_signal"] = {
+        "title": archive.get("title", ""),
+        "why": archive.get("why_hamza_should_care") or archive.get("action_rationale", "") or "Useful context, not post-worthy now.",
+    }
     decisions["one_signal_to_post"] = {
-        "title": selected.get("title", ""),
-        "action": post_action if post_action in {"X POST", "X THREAD"} else "X POST",
-        "why": selected.get("why_hamza_should_care") or selected.get("action_rationale", ""),
-        "regional_override_reason": priority_check.get("reason") if priority_check.get("status") == "Overridden" else "",
+        "title": immediate.get("title", ""),
+        "action": post_action,
+        "why": decisions["best_immediate_post"]["why"],
+        "regional_override_reason": regional_check.get("reason") if regional_check.get("status") == "Overridden" else "",
+    }
+    decisions["one_signal_to_watch"] = decisions.get("one_signal_to_watch") or {
+        "title": strategic.get("title", ""),
+        "horizon_days": "7-30",
+        "why": decisions["best_strategic_lead"]["why"],
+    }
+    decisions["one_signal_everyone_missing"] = decisions.get("one_signal_everyone_missing") or {
+        "title": strategic.get("title", ""),
+        "edge_score": strategic.get("scores", {}).get("edge", 0),
+        "why": strategic.get("why_hamza_should_care", ""),
     }
 
-    watch_candidates = sorted(normalized, key=lambda s: s.get("scores", {}).get("forecast_value", 0), reverse=True)
-    edge_candidates = sorted(
-        [s for s in normalized if s.get("niche_tier", 3) <= 2] or normalized,
-        key=lambda s: s.get("scores", {}).get("edge", 0),
-        reverse=True,
-    )
-
-    if not decisions.get("one_signal_to_watch"):
-        pick = watch_candidates[0] if watch_candidates else {}
-        decisions["one_signal_to_watch"] = {
-            "title": pick.get("title", ""),
-            "horizon_days": "7-30",
-            "why": pick.get("action_rationale") or pick.get("why_hamza_should_care", ""),
-        }
-
-    if not decisions.get("one_signal_everyone_missing"):
-        pick = edge_candidates[0] if edge_candidates else {}
-        decisions["one_signal_everyone_missing"] = {
-            "title": pick.get("title", ""),
-            "edge_score": pick.get("scores", {}).get("edge", 0),
-            "why": pick.get("why_hamza_should_care", ""),
-        }
-
     result["operator_decisions"] = decisions
-    result["regional_priority_check"] = priority_check
+    result["regional_priority_check"] = regional_check
+    result["live_momentum_check"] = momentum_check
     result["operator_mode"] = result.get("operator_mode") or "vNext"
 
-    if decisions.get("one_signal_to_post", {}).get("action") == "X THREAD":
+    if post_action == "X THREAD":
         result["post_format"] = "THREAD"
-    elif decisions.get("one_signal_to_post", {}).get("action") == "X POST":
+    elif post_action == "X POST":
         result["post_format"] = result.get("post_format") or "SHORT POST"
 
     if normalized:
-        lead = normalized[0]
+        lead = immediate or normalized[0]
         result["top_signal"] = {
             "title": lead["title"],
             "source": lead["source"],

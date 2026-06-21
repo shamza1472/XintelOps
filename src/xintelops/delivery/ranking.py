@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 # --- Regional tiers ---
@@ -25,6 +24,7 @@ TIER1_REGIONS = frozenset(
         "palestine",
         "syria",
         "iraq",
+        "qatar",
         "south asia",
         "south china sea",
         "indo-pacific",
@@ -100,6 +100,80 @@ STRATEGIC_THEME_TOKENS = frozenset(
         "hormuz",
         "bab el-mandeb",
         "strait",
+        "lng",
+        "oil",
+    }
+)
+
+PRIORITY_ACTOR_TOKENS = frozenset(
+    {
+        "iran",
+        "qatar",
+        "pakistan",
+        "gulf",
+        "saudi",
+        "uae",
+        "u.s.",
+        "us ",
+        "united states",
+        "washington",
+        "china",
+        "india",
+        "israel",
+        "lebanon",
+        "hezbollah",
+        "hormuz",
+        "red sea",
+        "oil",
+        "lng",
+        "sanctions",
+        "ceasefire",
+        "mediation",
+        "nuclear",
+        "switzerland",
+        "geneva",
+    }
+)
+
+LIVE_MOMENTUM_HIGH = frozenset(
+    {
+        "ceasefire",
+        "cease-fire",
+        "war termination",
+        "escalation talk",
+        "mediation",
+        "negotiation",
+        "talks in switzerland",
+        "geneva talks",
+        "diplomatic meeting",
+        "emergency meeting",
+        "hostage",
+        "prisoner swap",
+        "frozen asset",
+        "sanctions relief",
+        "sanctions enforcement",
+        "missile strike",
+        "airspace closure",
+        "naval deployment",
+        "strait of hormuz",
+        "oil price",
+        "lng",
+        "multi-state",
+        "crisis management",
+    }
+)
+
+LIVE_MOMENTUM_MEDIUM = frozenset(
+    {
+        "summit",
+        "bilateral",
+        "trilateral",
+        "delegation",
+        "foreign minister",
+        "defense minister",
+        "procurement",
+        "deployment",
+        "exercise",
     }
 )
 
@@ -156,6 +230,10 @@ SECOND_ORDER_TOKENS = frozenset(
         "south asia",
         "espionage",
         "dual-use",
+        "qatar",
+        "ceasefire",
+        "lng",
+        "oil",
     }
 )
 
@@ -168,6 +246,7 @@ NICHE_SOURCE_KEYWORDS = frozenset(
         "india",
         "iran",
         "gulf",
+        "qatar",
         "saudi",
         "uae",
         "yemen",
@@ -192,16 +271,17 @@ WESTERN_HEAVY_SOURCE_KEYWORDS = frozenset(
     {"nato", "ukraine", "crimea", "bbc", "reuters world", "tass", "defense.gov"}
 )
 
-TIER1_BOOST = 25
-TIER2_BOOST = 15
-THEME_BOOST = 10
+TIER1_BOOST = 15
+TIER2_BOOST = 8
+THEME_BOOST = 5
 GENERIC_WESTERN_PENALTY = 20
+MULTI_ACTOR_MOMENTUM_BOOST = 12
+LIVE_MOMENTUM_THRESHOLD = 8
 
-WEIGHT_NICHE = 0.35
-WEIGHT_EDGE = 0.25
-WEIGHT_FORECAST = 0.20
-WEIGHT_POST = 0.15
-WEIGHT_CONFIDENCE = 0.05
+# Normal mode weights
+N_NORMAL = {"niche": 0.30, "edge": 0.25, "forecast": 0.20, "post": 0.15, "confidence": 0.10}
+# Live momentum override mode weights
+N_OVERRIDE = {"momentum": 0.35, "post": 0.20, "niche": 0.20, "forecast": 0.15, "confidence": 0.10}
 
 
 def _blob(signal: dict[str, Any]) -> str:
@@ -228,27 +308,41 @@ def infer_niche_tier(region: str, domain: str = "", title: str = "") -> int:
     return 3
 
 
-def is_western_defense_signal(signal: dict[str, Any]) -> bool:
+def count_priority_actors(signal: dict[str, Any]) -> int:
     blob = _blob(signal)
-    return any(token in blob for token in WESTERN_DEFENSE_REGIONS)
+    return sum(1 for token in PRIORITY_ACTOR_TOKENS if token in blob)
+
+
+def infer_live_momentum(signal: dict[str, Any]) -> int:
+    scores = signal.get("scores") or {}
+    if scores.get("live_momentum") is not None:
+        return max(1, min(10, int(scores.get("live_momentum"))))
+
+    blob = _blob(signal)
+    if signal.get("crisis_flag"):
+        base = 8
+    elif any(t in blob for t in LIVE_MOMENTUM_HIGH):
+        base = 9
+    elif any(t in blob for t in LIVE_MOMENTUM_MEDIUM):
+        base = 7
+    else:
+        base = 4
+
+    actors = count_priority_actors(signal)
+    if actors >= 3:
+        base = min(10, base + 2)
+    if actors >= 4:
+        base = min(10, max(base, 9))
+
+    return max(1, min(10, base))
+
+
+def is_western_defense_signal(signal: dict[str, Any]) -> bool:
+    return any(token in _blob(signal) for token in WESTERN_DEFENSE_REGIONS)
 
 
 def has_strategic_theme(signal: dict[str, Any]) -> bool:
     return any(token in _blob(signal) for token in STRATEGIC_THEME_TOKENS)
-
-
-def is_generic_western_content(signal: dict[str, Any]) -> bool:
-    if not is_western_defense_signal(signal):
-        return False
-    blob = _blob(signal)
-    if any(token in blob for token in GENERIC_WESTERN_TOKENS):
-        return True
-    if has_strategic_theme(signal) or has_second_order_relevance(signal):
-        return False
-    scores = signal.get("scores") or {}
-    if int(scores.get("edge", 5)) >= 8 and has_second_order_relevance(signal):
-        return False
-    return is_western_defense_signal(signal) and not has_second_order_relevance(signal)
 
 
 def has_second_order_relevance(signal: dict[str, Any]) -> bool:
@@ -263,6 +357,20 @@ def has_second_order_relevance(signal: dict[str, Any]) -> bool:
     return matches >= 1 and has_strategic_theme(signal)
 
 
+def is_generic_western_content(signal: dict[str, Any]) -> bool:
+    momentum = infer_live_momentum(signal)
+    if momentum >= LIVE_MOMENTUM_THRESHOLD and count_priority_actors(signal) >= 2:
+        return False
+    if not is_western_defense_signal(signal):
+        return False
+    blob = _blob(signal)
+    if any(token in blob for token in GENERIC_WESTERN_TOKENS):
+        return not has_second_order_relevance(signal) and momentum < LIVE_MOMENTUM_THRESHOLD
+    if has_strategic_theme(signal) or has_second_order_relevance(signal):
+        return False
+    return is_western_defense_signal(signal) and momentum < LIVE_MOMENTUM_THRESHOLD
+
+
 def _confidence_score(confidence: str) -> int:
     mapping = {"HIGH": 10, "MEDIUM": 7, "LOW": 4}
     return mapping.get(str(confidence or "MEDIUM").upper(), 7)
@@ -275,41 +383,63 @@ def compute_rank_score(signal: dict[str, Any]) -> dict[str, Any]:
     forecast = int(scores.get("forecast_value", 5))
     post = int(scores.get("post_worthiness", 5))
     conf = _confidence_score(signal.get("confidence", "MEDIUM"))
-
-    base = (
-        niche * WEIGHT_NICHE * 10
-        + edge * WEIGHT_EDGE * 10
-        + forecast * WEIGHT_FORECAST * 10
-        + post * WEIGHT_POST * 10
-        + conf * WEIGHT_CONFIDENCE * 10
-    )
+    momentum = infer_live_momentum(signal)
+    scores["live_momentum"] = momentum
 
     tier = signal.get("niche_tier") or infer_niche_tier(
         str(signal.get("region") or ""),
         str(signal.get("domain") or ""),
         str(signal.get("title") or ""),
     )
+    actors = count_priority_actors(signal)
+    use_override = momentum >= LIVE_MOMENTUM_THRESHOLD or actors >= 3
+
+    if use_override:
+        base = (
+            momentum * N_OVERRIDE["momentum"] * 10
+            + post * N_OVERRIDE["post"] * 10
+            + niche * N_OVERRIDE["niche"] * 10
+            + forecast * N_OVERRIDE["forecast"] * 10
+            + conf * N_OVERRIDE["confidence"] * 10
+        )
+        ranking_mode = "live_momentum_override"
+    else:
+        base = (
+            niche * N_NORMAL["niche"] * 10
+            + edge * N_NORMAL["edge"] * 10
+            + forecast * N_NORMAL["forecast"] * 10
+            + post * N_NORMAL["post"] * 10
+            + conf * N_NORMAL["confidence"] * 10
+        )
+        ranking_mode = "normal"
+
     tier_boost = TIER1_BOOST if tier == 1 else TIER2_BOOST if tier == 2 else 0
     theme_boost = THEME_BOOST if has_strategic_theme(signal) else 0
+    actor_boost = MULTI_ACTOR_MOMENTUM_BOOST if actors >= 3 else 0
 
     penalty = 0
     penalty_reason = ""
     if is_generic_western_content(signal):
         penalty = GENERIC_WESTERN_PENALTY
-        penalty_reason = "Generic NATO/Ukraine/Europe content without second-order niche relevance"
-    elif is_western_defense_signal(signal) and not has_second_order_relevance(signal):
+        penalty_reason = "Generic NATO/Ukraine/Europe content without live momentum or niche link"
+    elif is_western_defense_signal(signal) and not has_second_order_relevance(signal) and momentum < LIVE_MOMENTUM_THRESHOLD:
         penalty = GENERIC_WESTERN_PENALTY
-        penalty_reason = "Western defense signal lacks China/Gulf/Red Sea/supply-chain linkage"
+        penalty_reason = "Western defense signal lacks priority-theater linkage and live momentum"
 
-    final = base + tier_boost + theme_boost - penalty
+    final = base + tier_boost + theme_boost + actor_boost - penalty
     return {
         "base_score": round(base, 1),
         "tier_boost": tier_boost,
         "theme_boost": theme_boost,
+        "actor_boost": actor_boost,
         "penalty": penalty,
         "penalty_reason": penalty_reason,
         "rank_score": round(final, 1),
         "niche_tier": tier,
+        "live_momentum": momentum,
+        "priority_actor_count": actors,
+        "ranking_mode": ranking_mode,
+        "live_momentum_override": use_override,
     }
 
 
@@ -322,15 +452,19 @@ def apply_ranking_bias(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
             str(item.get("domain") or ""),
             str(item.get("title") or ""),
         )
+        if "scores" not in item:
+            item["scores"] = {}
+        item["scores"]["live_momentum"] = infer_live_momentum(item)
         ranking = compute_rank_score(item)
         item.update(ranking)
+        item["scores"] = {**(item.get("scores") or {}), "live_momentum": ranking["live_momentum"]}
 
         action = str(item.get("recommended_action") or "MONITOR").upper()
         if is_generic_western_content(item) and action in {"X POST", "X THREAD", "LINKEDIN"}:
             item["recommended_action"] = "ARCHIVE"
             item["action_rationale"] = (
                 (item.get("action_rationale") or "")
-                + " [Auto-demoted: generic Western defense — archive/monitor only.]"
+                + " [Auto-demoted: generic Western defense without live momentum.]"
             ).strip()
 
         enriched.append(item)
@@ -341,80 +475,151 @@ def apply_ranking_bias(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return enriched
 
 
-def _best_niche_post_candidate(signals: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for sig in signals:
-        if sig.get("niche_tier", 3) <= 2 and sig.get("recommended_action") in {"X POST", "X THREAD"}:
-            return sig
-    for sig in signals:
-        if sig.get("niche_tier", 3) <= 2:
-            return sig
-    return None
+def _post_eligible(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        s
+        for s in signals
+        if s.get("recommended_action") in {"X POST", "X THREAD", "LINKEDIN"}
+        or (s.get("rank_score", 0) >= 60 and not is_generic_western_content(s))
+    ]
+
+
+def select_immediate_post(signals: list[dict[str, Any]], agent_pick: dict[str, Any] | None) -> dict[str, Any]:
+    """Highest-value post right now: rank_score + live momentum, not static region alone."""
+    eligible = _post_eligible(signals) or [s for s in signals if not is_generic_western_content(s)]
+    if not eligible:
+        return signals[0] if signals else {}
+
+    by_rank = sorted(eligible, key=lambda s: s.get("rank_score", 0), reverse=True)
+    top = by_rank[0]
+
+    agent_title = (agent_pick or {}).get("title")
+    if agent_title:
+        agent_sig = next((s for s in signals if s.get("title") == agent_title), None)
+        if agent_sig and not is_generic_western_content(agent_sig):
+            agent_momentum = agent_sig.get("live_momentum", 0)
+            top_momentum = top.get("live_momentum", 0)
+            if top.get("rank_score", 0) > agent_sig.get("rank_score", 0) + 5 and top_momentum >= LIVE_MOMENTUM_THRESHOLD:
+                return top
+            if agent_momentum >= LIVE_MOMENTUM_THRESHOLD and count_priority_actors(agent_sig) >= 3:
+                return agent_sig
+            if agent_sig.get("rank_score", 0) >= top.get("rank_score", 0) - 3:
+                return agent_sig
+
+    return top
+
+
+def select_strategic_lead(signals: list[dict[str, Any]], immediate: dict[str, Any]) -> dict[str, Any]:
+    """Best long-term tracking lead — high forecast + edge, lower live momentum ok."""
+    candidates = [s for s in signals if s.get("title") != immediate.get("title")]
+    if not candidates:
+        return {}
+    return max(
+        candidates,
+        key=lambda s: (
+            s.get("scores", {}).get("forecast_value", 0) * 2
+            + s.get("scores", {}).get("edge", 0)
+            + (5 if s.get("niche_tier", 3) <= 2 else 0)
+        ),
+    )
+
+
+def select_archive_signal(signals: list[dict[str, Any]], immediate: dict[str, Any], strategic: dict[str, Any]) -> dict[str, Any]:
+    skip = {immediate.get("title"), strategic.get("title")}
+    archived = [s for s in signals if s.get("recommended_action") in {"ARCHIVE", "IGNORE"} and s.get("title") not in skip]
+    if archived:
+        return archived[0]
+    remaining = [s for s in signals if s.get("title") not in skip]
+    if not remaining:
+        return {}
+    return min(remaining, key=lambda s: s.get("scores", {}).get("post_worthiness", 10))
+
+
+def build_live_momentum_check(selected: dict[str, Any], signals: list[dict[str, Any]]) -> dict[str, Any]:
+    momentum = selected.get("live_momentum", 0)
+    actors = selected.get("priority_actor_count", 0)
+    override = selected.get("live_momentum_override") or momentum >= LIVE_MOMENTUM_THRESHOLD
+
+    if override and momentum >= LIVE_MOMENTUM_THRESHOLD:
+        actor_list = []
+        blob = _blob(selected)
+        for token in PRIORITY_ACTOR_TOKENS:
+            if token in blob and token not in actor_list:
+                actor_list.append(token.strip())
+        actors_str = ", ".join(actor_list[:6]) or f"{actors} priority actors/themes"
+        return {
+            "status": "Override Triggered",
+            "reason": (
+                f"Live Momentum Override triggered because this story involves {actors_str}, "
+                f"momentum {momentum}/10, and time-sensitive consequences likely to dominate "
+                f"analyst conversation in the next 3–12 hours."
+            ),
+        }
+
+    if momentum >= 6:
+        return {
+            "status": "Passed",
+            "reason": f"Moderate live momentum ({momentum}/10) — timely but not crisis-cycle dominant.",
+        }
+
+    static_niche_only = (
+        selected.get("niche_tier", 3) <= 2
+        and momentum < 6
+        and all(s.get("live_momentum", 0) < LIVE_MOMENTUM_THRESHOLD for s in signals[:3])
+    )
+    if static_niche_only:
+        return {
+            "status": "Passed",
+            "reason": "No higher live-momentum signal in this scan; niche strategic lead selected.",
+        }
+
+    return {
+        "status": "Failed",
+        "reason": "Low live momentum — consider whether a more urgent signal was missed.",
+    }
+
+
+def build_regional_priority_check(selected: dict[str, Any]) -> dict[str, Any]:
+    tier = selected.get("niche_tier", 3)
+    momentum = selected.get("live_momentum", 0)
+    actors = selected.get("priority_actor_count", 0)
+
+    if momentum >= LIVE_MOMENTUM_THRESHOLD and actors >= 2:
+        return {
+            "status": "Passed",
+            "reason": (
+                f"Live momentum ({momentum}/10) with {actors} priority actors — "
+                "timing overrides static region preference."
+            ),
+        }
+    if tier <= 2:
+        return {
+            "status": "Passed",
+            "reason": f"Tier-{tier} priority theater ({selected.get('region', 'niche region')}).",
+        }
+    if has_second_order_relevance(selected):
+        return {
+            "status": "Overridden",
+            "reason": "Western/peripheral signal retained due to second-order niche relevance.",
+        }
+    return {
+        "status": "Overridden",
+        "reason": "Peripheral region selected — verify live momentum justified this over Tier 1/2 options.",
+    }
 
 
 def select_post_with_quota(
     signals: list[dict[str, Any]],
     agent_pick: dict[str, Any] | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return (selected_signal, regional_priority_check)."""
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Return (immediate_post, regional_check, momentum_check)."""
     if not signals:
-        return {}, {"status": "Failed", "reason": "No verified signals in scan."}
+        return {}, {"status": "Failed", "reason": "No verified signals."}, {"status": "Failed", "reason": "No signals."}
 
-    niche_best = _best_niche_post_candidate(signals)
-    agent_title = (agent_pick or {}).get("title")
-    selected = next((s for s in signals if s.get("title") == agent_title), signals[0])
-    if not agent_title:
-        selected = niche_best or signals[0]
-
-    tier = selected.get("niche_tier", 3)
-    western = is_western_defense_signal(selected)
-    second_order = has_second_order_relevance(selected)
-    agent_override_reason = (agent_pick or {}).get("regional_override_reason") or selected.get(
-        "regional_override_reason"
-    )
-
-    if tier <= 2:
-        return selected, {
-            "status": "Passed",
-            "reason": f"Top post from Tier-{tier} priority theater ({selected.get('region', 'niche region')}).",
-        }
-
-    if niche_best and niche_best.get("title") != selected.get("title"):
-        if not second_order and not agent_override_reason:
-            return niche_best, {
-                "status": "Overridden",
-                "reason": (
-                    f"Agent selected Western/generic signal '{selected.get('title')}'. "
-                    f"Replaced with Tier-{niche_best.get('niche_tier')} priority: "
-                    f"{niche_best.get('title')}."
-                ),
-            }
-
-    if western and second_order:
-        reason = agent_override_reason or (
-            "Western signal retained due to explicit second-order relevance to "
-            "China/Gulf/Red Sea/supply chains/maritime/sanctions theaters."
-        )
-        return selected, {"status": "Overridden", "reason": reason}
-
-    if western and not niche_best:
-        reason = agent_override_reason or (
-            "No Tier-1/Tier-2 signal available this scan. Western signal selected with caution."
-        )
-        return selected, {"status": "Overridden", "reason": reason}
-
-    if western:
-        return niche_best or selected, {
-            "status": "Overridden",
-            "reason": (
-                agent_override_reason
-                or f"Generic Western signal blocked. Using Tier-{niche_best.get('niche_tier')} priority pick."
-            ),
-        }
-
-    return selected, {
-        "status": "Passed",
-        "reason": f"Signal aligns with XIntelOps niche positioning ({selected.get('region', 'priority theater')}).",
-    }
+    immediate = select_immediate_post(signals, agent_pick)
+    regional = build_regional_priority_check(immediate)
+    momentum = build_live_momentum_check(immediate, signals)
+    return immediate, regional, momentum
 
 
 def source_priority_score(source_name: str, region: str = "", domain: str = "") -> int:

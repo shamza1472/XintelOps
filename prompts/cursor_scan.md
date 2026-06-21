@@ -69,36 +69,55 @@ Also assign `niche_tier`: **1**, **2**, or **3**
 
 **Scores are internal.** Do not over-explain scoring in drafts. They appear only in the ranked list.
 
-### FINAL RANK FORMULA (applied at finalize — do not let NATO/Ukraine dominate)
+### LIVE MOMENTUM SCORE (1–10)
+Measures real-time urgency — not static region preference.
 
-Weighted base (max 100):
-- Niche Relevance **35%**
-- Edge **25%**
-- Forecast Value **20%**
-- Post Worthiness **15%**
-- Confidence **5%**
+Score **9–10** if:
+- Active ceasefire / war termination / escalation talks
+- U.S. / Iran / Gulf / Pakistan / Qatar mediation
+- Strait of Hormuz risk, oil/LNG market implications
+- Active missile, maritime, or airspace escalation
+- Major sanctions relief or enforcement shift
+- Hostage/prisoner/frozen asset negotiations
+- Emergency diplomatic meetings, multi-state crisis management
+- Likely to dominate analyst conversation in next **3–12 hours**
 
-Boosts (additive):
-- Tier 1 theater (China, Pakistan, India, Gulf, Iran, Levant, Red Sea, Horn): **+25**
-- Tier 2 theater (Central Asia, Caucasus, East Africa, ASEAN, Indian Ocean): **+15**
-- Strategic theme (ports, shipping, chokepoints, ISR, EW, drones, rare earths, energy, cables, sanctions, espionage): **+10**
+Score **6–8**: important but slower-moving, strong regional relevance
 
-Penalty:
-- Generic NATO/Ukraine/Europe battlefield content without second-order niche link: **-20**
+Score **1–5**: static analysis, low immediacy, no active crisis window
 
-### HARD POST QUOTA
+**Multi-actor override:** If signal involves **3+ priority actors/themes** (Iran, Qatar, Pakistan, Gulf, U.S., China, India, Israel/Lebanon, Hormuz, Red Sea, oil/LNG, sanctions, ceasefire, mediation, nuclear talks) → treat as live momentum candidate.
 
-Top recommended post must prefer **Tier 1 or Tier 2** signals.
+Example: Qatar + Pakistan + Iran + U.S. ceasefire talks in Switzerland → likely beats a slower China supply-chain story for **immediate X posting**.
 
-Ukraine/NATO/Europe may win only if:
-1. No Tier 1/2 signal exists; OR
-2. Clear second-order link to China, Gulf, Red Sea, South Asia, Horn, energy, shipping, sanctions, or defense supply chains.
+### FINAL RANK FORMULA (applied at finalize)
 
-If a Western signal wins, set `second_order_relevance: true` and `regional_override_reason` explaining why it beat the filter.
+**Normal Mode** (Live Momentum < 8):
+- Niche Relevance **30%** · Edge **25%** · Forecast **20%** · Post Worthiness **15%** · Confidence **10%**
 
-Generic Ukraine/NATO signals → `ARCHIVE` or `MONITOR`, never the main post.
+**Live Momentum Override Mode** (Live Momentum ≥ 8 OR 3+ priority actors):
+- Live Momentum **35%** · Post Worthiness **20%** · Niche **20%** · Forecast **15%** · Confidence **10%**
 
-### SELECTION QUESTIONS (ask before assigning X POST / X THREAD)
+Boosts: Tier 1 +15 · Tier 2 +8 · Strategic theme +5 · Multi-actor (3+) +12
+
+Penalty: Generic NATO/Ukraine battlefield without live momentum or niche link: **-20**
+
+### SELECTION LOGIC — NOT REGION-DOGMATIC
+
+Priority regions define **identity**. Live momentum defines **timing**. Both matter.
+
+Do NOT pick China because "China is Tier 1" if a live Iran/Qatar/Pakistan/U.S. diplomatic event has higher real-time relevance.
+
+Separate three outputs:
+1. **best_immediate_post** — highest engagement right now (freshness + momentum + sources)
+2. **best_strategic_lead** — strongest long-term tracking lead (forecast + edge)
+3. **best_archive_signal** — useful but not post-worthy
+
+Before finalizing, ask: **"What is the most important strategic signal right now?"** — not just "What is Tier 1?"
+
+Generic Ukraine/NATO → ARCHIVE/MONITOR unless live momentum ≥ 8 with priority actors.
+
+### SELECTION QUESTIONS
 
 1. Does this build XIntelOps identity in China–Gulf–Red Sea–Horn–South Asia?
 2. Is it under-covered vs mainstream accounts?
@@ -232,7 +251,8 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
         "edge": 9,
         "post_worthiness": 8,
         "forecast_value": 10,
-        "niche_relevance": 9
+        "niche_relevance": 9,
+        "live_momentum": 9
       },
       "recommended_action": "X THREAD",
       "action_rationale": "",
@@ -243,6 +263,22 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
     }
   ],
   "operator_decisions": {
+    "best_immediate_post": {
+      "title": "",
+      "action": "X THREAD",
+      "why": "",
+      "live_momentum": 9,
+      "ranking_mode": "live_momentum_override"
+    },
+    "best_strategic_lead": {
+      "title": "",
+      "why": "",
+      "horizon": "7-30 days"
+    },
+    "best_archive_signal": {
+      "title": "",
+      "why": ""
+    },
     "one_signal_to_post": {
       "title": "",
       "action": "X THREAD",

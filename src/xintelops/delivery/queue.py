@@ -193,6 +193,12 @@ def resolve_queue(
         "linkedin": result.get("linkedin_block") or {},
         "queue": queue,
         "regional_priority": result.get("regional_priority_check") or {},
+        "live_momentum": result.get("live_momentum_check") or {},
+        "immediate_vs_strategic": {
+            "immediate": (result.get("operator_decisions") or {}).get("best_immediate_post") or {},
+            "strategic": (result.get("operator_decisions") or {}).get("best_strategic_lead") or {},
+            "archive": (result.get("operator_decisions") or {}).get("best_archive_signal") or {},
+        },
     }
 
     queue_status = queue["status"]
