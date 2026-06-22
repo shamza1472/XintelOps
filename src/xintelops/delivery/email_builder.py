@@ -261,7 +261,7 @@ def build_email_html(result: dict[str, Any]) -> str:
       {_render_journalist(journalist)}
     </div>
   </div>
-  <div class="footer">Operator layer · content_schedule queue · {_esc(result.get('scan_session'))}</div>
+  <div class="footer">Operator layer · content_schedule queue · {_esc(result.get('scan_session'))}<br>Runtime: {_esc((result.get('runtime') or {}).get('runtime_label') or 'unknown')}</div>
 </div>
 </body>
 </html>"""

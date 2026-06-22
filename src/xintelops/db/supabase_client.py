@@ -392,6 +392,9 @@ class SupabaseClient:
                     "signals_blocked": result.get("signals_blocked", 0),
                     "crisis_detected": result.get("crisis_detected", False),
                     "email_sent": False,
+                    "runtime_branch": (result.get("runtime") or {}).get("runtime_branch"),
+                    "runtime_commit_sha": (result.get("runtime") or {}).get("runtime_commit_sha"),
+                    "scan_runtime_started_at": (result.get("runtime") or {}).get("scan_runtime_started_at"),
                 }
             )
             .execute()

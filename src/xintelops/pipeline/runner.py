@@ -73,6 +73,7 @@ class PipelineRunner:
             "crisis": result.get("crisis_detected"),
             "signal": (result.get("top_signal") or {}).get("title"),
             "email_sent": email_sent,
+            "runtime": result.get("runtime"),
         }
 
     def run(self, skip_ingest: bool = False, source_bundle: str | None = None) -> dict[str, Any]:

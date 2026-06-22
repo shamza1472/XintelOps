@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from xintelops.config import get_settings
 from xintelops.delivery.cadence import enrich_result
 from xintelops.pipeline.runner import PipelineRunner
+from xintelops.runtime_metadata import attach_runtime_metadata
 
 
 def main() -> int:
@@ -32,6 +33,7 @@ def main() -> int:
         return 1
 
     result = json.loads(result_path.read_text(encoding="utf-8"))
+    result = attach_runtime_metadata(result)
     runner = PipelineRunner(settings)
     active_events: list = []
     rec_history: list = []
