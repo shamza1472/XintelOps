@@ -44,9 +44,41 @@ def _format_label(action: str) -> str:
 
 
 def build_source_package(result: dict[str, Any], signal_title: str = "") -> list[dict[str, Any]]:
+    title = signal_title or (result.get("operator_decisions") or {}).get("one_signal_to_post", {}).get("title", "")
+
+    # Prefer package entries bound to the selected signal title
     explicit = result.get("source_package")
     if isinstance(explicit, list) and explicit:
-        return explicit
+        bound = [p for p in explicit if title and title.lower()[:40] in str(p.get("why_supports", "")).lower()]
+        if bound:
+            return bound[:5]
+        # Use explicit only if top signal title appears in why_supports of any entry
+        if any(title.lower()[:30] in str(p.get("why_supports", "")).lower() for p in explicit):
+            return explicit[:5]
+
+    selected = next((s for s in result.get("ranked_signals") or [] if s.get("title") == title), None)
+    if selected and selected.get("url"):
+        package = [
+            {
+                "name": selected.get("source") or "Source",
+                "url": selected.get("url"),
+                "published_date": selected.get("event_date") or "Unknown",
+                "tier": f"T{selected.get('niche_tier', 2)}",
+                "why_supports": selected.get("why_hamza_should_care") or f"Primary source for: {title}",
+            }
+        ]
+        for item in result.get("source_citations") or []:
+            if item.get("url") and item.get("url") != selected.get("url"):
+                package.append(
+                    {
+                        "name": item.get("name") or item.get("source") or "Source",
+                        "url": item.get("url") or "",
+                        "published_date": item.get("published_date") or item.get("event_date") or "Unknown",
+                        "tier": item.get("tier") or "L1",
+                        "why_supports": item.get("why_supports") or f"Corroborates: {title}",
+                    }
+                )
+        return package[:5]
 
     package: list[dict[str, Any]] = []
     for item in result.get("source_citations") or []:
@@ -56,23 +88,21 @@ def build_source_package(result: dict[str, Any], signal_title: str = "") -> list
                 "url": item.get("url") or "",
                 "published_date": item.get("published_date") or item.get("event_date") or "Unknown",
                 "tier": item.get("tier") or "L1",
-                "why_supports": item.get("why_supports")
-                or f"Supports claims in: {signal_title or 'top signal'}",
+                "why_supports": item.get("why_supports") or f"Supports claims in: {title or 'top signal'}",
             }
         )
 
-    if not package:
-        for sig in result.get("ranked_signals") or []:
-            if sig.get("url"):
-                package.append(
-                    {
-                        "name": sig.get("source") or "Source",
-                        "url": sig.get("url"),
-                        "published_date": sig.get("event_date") or "Unknown",
-                        "tier": f"T{sig.get('niche_tier', 2)}",
-                        "why_supports": sig.get("why_hamza_should_care") or sig.get("action_rationale") or "",
-                    }
-                )
+    if not package and selected:
+        if selected.get("url"):
+            package.append(
+                {
+                    "name": selected.get("source") or "Source",
+                    "url": selected.get("url"),
+                    "published_date": selected.get("event_date") or "Unknown",
+                    "tier": f"T{selected.get('niche_tier', 2)}",
+                    "why_supports": selected.get("why_hamza_should_care") or "",
+                }
+            )
     return package[:5]
 
 
@@ -194,6 +224,7 @@ def resolve_queue(
         "queue": queue,
         "regional_priority": result.get("regional_priority_check") or {},
         "live_momentum": result.get("live_momentum_check") or {},
+        "active_live_events": result.get("active_live_events") or {},
         "immediate_vs_strategic": {
             "immediate": (result.get("operator_decisions") or {}).get("best_immediate_post") or {},
             "strategic": (result.get("operator_decisions") or {}).get("best_strategic_lead") or {},

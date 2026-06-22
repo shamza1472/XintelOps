@@ -74,8 +74,8 @@ Measures real-time urgency — not static region preference.
 
 Score **9–10** if:
 - Active ceasefire / war termination / escalation talks
-- U.S. / Iran / Gulf / Pakistan / Qatar mediation
-- Strait of Hormuz risk, oil/LNG market implications
+- Multi-state mediation with military, energy, or maritime consequences
+- Chokepoint risk (strait, port, cable, airspace) with market implications
 - Active missile, maritime, or airspace escalation
 - Major sanctions relief or enforcement shift
 - Hostage/prisoner/frozen asset negotiations
@@ -86,27 +86,39 @@ Score **6–8**: important but slower-moving, strong regional relevance
 
 Score **1–5**: static analysis, low immediacy, no active crisis window
 
-**Multi-actor override:** If signal involves **3+ priority actors/themes** (Iran, Qatar, Pakistan, Gulf, U.S., China, India, Israel/Lebanon, Hormuz, Red Sea, oil/LNG, sanctions, ceasefire, mediation, nuclear talks) → treat as live momentum candidate.
+**Multi-actor override:** If signal involves **3+ state actors or strategic themes** (diplomacy, mediation, chokepoints, energy, sanctions, nuclear talks) → treat as live momentum candidate.
 
-Example: Qatar + Pakistan + Iran + U.S. ceasefire talks in Switzerland → likely beats a slower China supply-chain story for **immediate X posting**.
+### FRESHNESS CLASS (required per signal)
+Assign exactly one: `BREAKING` · `LIVE` · `DEVELOPING` · `ANALYSIS` · `EVERGREEN`
+
+- **BREAKING/LIVE** → immediate post candidates
+- **DEVELOPING** → immediate post if still timely
+- **ANALYSIS** → LinkedIn / archive unless no live event exists and not recently recommended
+- **EVERGREEN** → almost never Best Immediate Post
+
+### LIVE EVENT SCORE (1–10, computed at finalize)
+Generic event-structure score: actor count, region tier, recency, consequence, source convergence, update velocity.
+If `live_event_score >= 8`, can override static niche stories. If `>= 9`, usually Best Immediate Post unless confidence is LOW.
+
+Do **not** hardcode specific countries — score by event structure (diplomacy, escalation, chokepoints, sanctions, energy, etc.).
 
 ### FINAL RANK FORMULA (applied at finalize)
 
-**Normal Mode** (Live Momentum < 8):
+**Normal Mode** (live_event_score < 8):
 - Niche Relevance **30%** · Edge **25%** · Forecast **20%** · Post Worthiness **15%** · Confidence **10%**
 
-**Live Momentum Override Mode** (Live Momentum ≥ 8 OR 3+ priority actors):
-- Live Momentum **35%** · Post Worthiness **20%** · Niche **20%** · Forecast **15%** · Confidence **10%**
+**Live Event Priority Mode** (live_event_score ≥ 8 OR live momentum ≥ 8 OR 3+ actors):
+- Live Event Score **35%** · Post Worthiness **20%** · Niche **20%** · Forecast **15%** · Confidence **10%**
 
 Boosts: Tier 1 +15 · Tier 2 +8 · Strategic theme +5 · Multi-actor (3+) +12
 
-Penalty: Generic NATO/Ukraine battlefield without live momentum or niche link: **-20**
+Penalties: Generic NATO/Ukraine without live momentum **-20** · Evergreen **-30** · Slow-burn repeat within 12h **-50**
 
 ### SELECTION LOGIC — NOT REGION-DOGMATIC
 
-Priority regions define **identity**. Live momentum defines **timing**. Both matter.
+Priority regions define **identity**. Live event score defines **timing**. Both matter.
 
-Do NOT pick China because "China is Tier 1" if a live Iran/Qatar/Pakistan/U.S. diplomatic event has higher real-time relevance.
+Do NOT pick a Tier-1 analysis piece if a live multi-actor diplomatic/military/market event has higher real-time relevance.
 
 Separate three outputs:
 1. **best_immediate_post** — highest engagement right now (freshness + momentum + sources)
@@ -254,6 +266,7 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
         "niche_relevance": 9,
         "live_momentum": 9
       },
+      "freshness_class": "LIVE",
       "recommended_action": "X THREAD",
       "action_rationale": "",
       "second_order_relevance": false,

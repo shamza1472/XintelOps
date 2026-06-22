@@ -32,18 +32,25 @@ class IngestOrchestrator:
         return items
 
     def bundle_text(self, items: list[IngestedItem]) -> str:
-        sections = {
+        sections: dict[str, list] = {
             "news": [],
+            "html": [],
+            "scraper": [],
             "rss": [],
             "telemetry": [],
             "journalist": [],
         }
         for item in items:
-            sections.setdefault(item.source_type, []).append(item)
+            key = item.source_type
+            if key in {"html", "scraper"}:
+                sections[key].append(item)
+            else:
+                sections.setdefault(key, []).append(item)
 
         parts = ["═══ XINTELOPS SOURCE BUNDLE ═══"]
         for label, key in [
-            ("DIRECT + HTML FEEDS", "news"),
+            ("DIRECT + HTML FEEDS", "html"),
+            ("SELECTOR SCRAPED FEEDS", "scraper"),
             ("RSS CATALOG", "rss"),
             ("TELEMETRY", "telemetry"),
             ("JOURNALIST POSTS", "journalist"),

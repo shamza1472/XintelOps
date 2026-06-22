@@ -26,18 +26,71 @@ def _render_source_package(sources: list[dict[str, Any]]) -> str:
     return f"<ul class='source-list'>{''.join(rows)}</ul>"
 
 
+def _render_active_live_events(active: dict[str, Any]) -> str:
+    events = active.get("events") or []
+    if not events:
+        return f'<div class="op-line muted">{_esc(active.get("summary", "No active live events."))}</div>'
+    rows = []
+    for ev in events:
+        rows.append(
+            f"""
+            <div class="op-line"><strong>{_esc(ev.get('title'))}</strong></div>
+            <div class="op-line"><span class="op-key">Status:</span> {_esc(ev.get('status'))}</div>
+            <div class="op-line"><span class="op-key">Active until:</span> {_esc(ev.get('active_until'))}</div>
+            <div class="op-line"><span class="op-key">Last update:</span> {_esc(ev.get('last_update'))}</div>
+            <div class="op-line"><span class="op-key">Action:</span> {_esc(ev.get('current_action'))}</div>
+            <div class="op-line"><span class="op-key">Reason:</span> {_esc(ev.get('reason'))}</div>
+            """
+        )
+    return "".join(rows)
+
+
+def _render_linkedin_decision(li: dict[str, Any]) -> str:
+    copy_block = ""
+    if li.get("copy_this") and li.get("status") in {"Post now", "Crisis exception", "Scheduled today"}:
+        copy_block = f"""
+        <div class="op-line"><span class="op-key">COPY THIS:</span></div>
+        <div class="post-box linkedin" style="margin-top:6px;">{_esc(li.get('copy_this', '')).replace(chr(10), '<br>')}</div>
+        """
+    why_no = ""
+    if not li.get("topic") and li.get("status") == "Not scheduled today":
+        why_no = f'<div class="op-line">{_esc(li.get("todays_action"))}</div>'
+
+    return f"""
+      <div class="op-section">
+        <div class="op-heading">LinkedIn Decision</div>
+        <div class="op-line"><span class="op-key">Status:</span> {_esc(li.get('status'))}</div>
+        <div class="op-line"><span class="op-key">Window:</span> {_esc(li.get('window'))}</div>
+        <div class="op-line"><span class="op-key">Current time:</span> {_esc(li.get('current_time'))}</div>
+        <div class="op-line"><span class="op-key">Action:</span> {_esc(li.get('action'))}</div>
+        <div class="op-line"><span class="op-key">Topic:</span> <strong>{_esc(li.get('topic'))}</strong></div>
+        <div class="op-line"><span class="op-key">Format:</span> {_esc(li.get('format'))}</div>
+        <div class="op-line"><span class="op-key">Why this topic:</span> {_esc(li.get('why_this_topic'))}</div>
+        {copy_block}
+        <div class="op-line"><span class="op-key">Source package:</span></div>
+        {_render_source_package(li.get('source_package') or [])}
+        {why_no}
+      </div>
+    """
+
+
 def _render_operator_block(block: dict[str, Any]) -> str:
     x = block.get("x") or {}
     li = block.get("linkedin") or {}
     queue = block.get("queue") or {}
+    immediate = (block.get("immediate_vs_strategic") or {}).get("immediate") or {}
 
     return f"""
     <div class="op-block">
       <div class="op-section">
+        <div class="op-heading">Active Live Events</div>
+        {_render_active_live_events(block.get('active_live_events') or {})}
+      </div>
+      <div class="op-section">
         <div class="op-heading">Best Immediate Post</div>
-        <div class="op-line"><strong>{_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('title'))}</strong></div>
-        <div class="op-line"><span class="op-key">Action:</span> {_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('action'))} · Momentum {_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('live_momentum'))}/10</div>
-        <div class="op-line">{_esc((block.get('immediate_vs_strategic') or {}).get('immediate', {}).get('why'))}</div>
+        <div class="op-line"><strong>{_esc(immediate.get('title'))}</strong></div>
+        <div class="op-line"><span class="op-key">Action:</span> {_esc(immediate.get('action'))} · Live event {_esc(immediate.get('live_event_score'))}/10 · Momentum {_esc(immediate.get('live_momentum'))}/10 · {_esc(immediate.get('freshness_class'))}</div>
+        <div class="op-line">{_esc(immediate.get('why'))}</div>
       </div>
       <div class="op-section">
         <div class="op-heading">Best Strategic Lead</div>
@@ -60,13 +113,7 @@ def _render_operator_block(block: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Source package:</span></div>
         {_render_source_package(x.get('source_package') or [])}
       </div>
-      <div class="op-section">
-        <div class="op-heading">LinkedIn</div>
-        <div class="op-line"><span class="op-key">Status:</span> {_esc(li.get('status'))}</div>
-        <div class="op-line"><span class="op-key">Next window:</span> {_esc(li.get('next_window'))}</div>
-        <div class="op-line"><span class="op-key">Today's action:</span> {_esc(li.get('todays_action'))}</div>
-        <div class="op-line"><span class="op-key">Content source:</span> {_esc(li.get('content_source'))}</div>
-      </div>
+      {_render_linkedin_decision(li)}
       <div class="op-section">
         <div class="op-heading">Live Momentum Check</div>
         <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('live_momentum') or {}).get('status'))}</div>
@@ -93,7 +140,7 @@ def _render_ranked_signals(signals: list[dict[str, Any]]) -> str:
     rows = []
     for sig in signals:
         scores = sig.get("scores") or {}
-        action = sig.get("recommended_action") or "MONITOR"
+        action = sig.get("canonical_action") or sig.get("recommended_action") or "MONITOR"
         rows.append(
             f"""
             <div class="rank-row">
@@ -102,10 +149,12 @@ def _render_ranked_signals(signals: list[dict[str, Any]]) -> str:
                 <div class="rank-title">{_esc(sig.get('title'))}</div>
                 <div class="rank-why">{_esc(sig.get('why_hamza_should_care'))}</div>
                 <div class="score-line">
-                  Rank {_esc(sig.get('rank_score'))} · Momentum {_esc(scores.get('live_momentum'))} · Edge {_esc(scores.get('edge'))} ·
+                  Rank {_esc(sig.get('rank_score'))} · Live event {_esc(sig.get('live_event_score'))} · {_esc(sig.get('freshness_class'))} ·
+                  Momentum {_esc(scores.get('live_momentum'))} · Edge {_esc(scores.get('edge'))} ·
                   Post {_esc(scores.get('post_worthiness'))} · Forecast {_esc(scores.get('forecast_value'))} ·
                   Niche {_esc(scores.get('niche_relevance'))} · T{_esc(sig.get('niche_tier'))}
                   {' · 🚨 LIVE' if sig.get('live_momentum_override') else ''}
+                  {' · ↩ carried' if sig.get('carried_forward') else ''}
                 </div>
                 <span class="tag {_action_tag_class(action)}">{_esc(action)}</span>
               </div>
@@ -134,7 +183,10 @@ def _render_journalist(journalist: dict[str, Any]) -> str:
 
 
 def build_email_html(result: dict[str, Any]) -> str:
-    result = enrich_result(dict(result))
+    if not result.get("operator_block"):
+        result = enrich_result(dict(result))
+    else:
+        result = dict(result)
     block = result.get("operator_block") or {}
     x_block = block.get("x") or {}
     li_block = block.get("linkedin") or {}
@@ -142,7 +194,9 @@ def build_email_html(result: dict[str, Any]) -> str:
     journalist = result.get("journalist") or {}
 
     draft = x_block.get("draft") or result.get("x_post") or ""
-    show_linkedin = li_block.get("article_post") and li_block.get("status", "").startswith("Scheduled")
+    show_linkedin = li_block.get("copy_this") and li_block.get("status") in {
+        "Post now", "Crisis exception", "Scheduled today"
+    }
 
     return f"""<!DOCTYPE html>
 <html>
@@ -201,7 +255,7 @@ def build_email_html(result: dict[str, Any]) -> str:
       {_render_ranked_signals(ranked)}
     </div>
     {'<div class="section"><div class="section-label">Draft — ' + _esc(x_block.get("format", "POST")) + '</div><div class="post-box">' + _esc(draft).replace(chr(10), "<br>") + '</div>' + _render_source_package(x_block.get("source_package") or []) + '</div>' if draft else ''}
-    {'<div class="section"><div class="section-label">LinkedIn article</div><div class="post-box linkedin">' + _esc(li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div><div class="compact-line">Source: ' + _esc(li_block.get("content_source")) + '</div></div>' if show_linkedin else ''}
+    {'<div class="section"><div class="section-label">LinkedIn — ' + _esc(li_block.get("status", "POST")) + '</div><div class="post-box linkedin">' + _esc(li_block.get("copy_this") or li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div>' + _render_source_package(li_block.get("source_package") or []) + '</div>' if show_linkedin else ''}
     <div class="section">
       <div class="section-label">Journalist engagement</div>
       {_render_journalist(journalist)}

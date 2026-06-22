@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
+from xintelops.delivery.live_events import parse_pkt_scan_time
 from xintelops.delivery.ranking import infer_niche_tier
 
 PKT = timezone(timedelta(hours=5))
 
 LINKEDIN_DAYS = {"Monday", "Wednesday", "Friday"}
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+LINKEDIN_WINDOW_START = time(9, 0)
+LINKEDIN_WINDOW_END = time(11, 0)
 
 
 def is_linkedin_day(day_name: str) -> bool:
@@ -25,12 +28,31 @@ def next_linkedin_day(day_name: str) -> str:
             return candidate
     return "Monday"
 
+
+def linkedin_window_state(result: dict[str, Any]) -> str:
+    """Return: before_window | in_window | after_window | not_scheduled."""
+    day = str(result.get("day_of_week") or "")
+    if not is_linkedin_day(day):
+        return "not_scheduled"
+    scan_time = parse_pkt_scan_time(result)
+    t = scan_time.time()
+    if t < LINKEDIN_WINDOW_START:
+        return "before_window"
+    if LINKEDIN_WINDOW_START <= t <= LINKEDIN_WINDOW_END:
+        return "in_window"
+    return "after_window"
+
+
+def format_pkt_now(result: dict[str, Any]) -> str:
+    return parse_pkt_scan_time(result).strftime("%Y-%m-%d %H:%M PKT")
+
+
 SYNTHESIS_TOPICS = [
-    "China's ISR and logistics posture across the First Island Chain.",
-    "The Gulf–Red Sea–Horn of Africa corridor as the real strategic map.",
-    "Pakistan, India, and China: procurement signals that matter more than diplomatic noise.",
-    "Crimea logistics pressure as a leading indicator for Russian operational tempo.",
-    "Why agricultural drones are a harder supply-chain risk than consumer apps.",
+    "Maritime chokepoints and insurance premiums as the real escalation signal.",
+    "Defense-industrial procurement patterns across priority theaters.",
+    "Dual-use technology and supply-chain risk beyond consumer headlines.",
+    "Energy routing, sanctions enforcement, and market repricing windows.",
+    "Port, cable, and airspace disruptions as leading indicators.",
 ]
 
 
@@ -47,21 +69,55 @@ def _score_output(row: dict[str, Any]) -> int:
     return tier_bonus + conf_bonus + crisis_bonus
 
 
-def pick_fresh_linkedin_signal(result: dict[str, Any]) -> dict[str, Any] | None:
+def _top_live_signal(result: dict[str, Any]) -> dict[str, Any] | None:
     for sig in result.get("ranked_signals") or []:
-        if sig.get("recommended_action") == "LINKEDIN":
+        if sig.get("live_event_score", 0) >= 8 and sig.get("freshness_class") in {"BREAKING", "LIVE", "DEVELOPING"}:
             return sig
     for sig in result.get("ranked_signals") or []:
-        if sig.get("niche_tier") == 1 and sig.get("recommended_action") in {"X POST", "X THREAD", "LINKEDIN"}:
-            return sig
-    for sig in result.get("ranked_signals") or []:
-        if sig.get("niche_tier") == 2:
+        if sig.get("live_event_score", 0) >= 9:
             return sig
     return None
 
 
+def pick_linkedin_topic(result: dict[str, Any], db_outputs: list[dict[str, Any]] | None = None) -> tuple[dict[str, Any] | None, str]:
+    """Hierarchy: active crisis/live > synthesis > strategic lead > archive."""
+    live = _top_live_signal(result)
+    if live:
+        return live, "Active high-momentum live event"
+
+    for sig in result.get("ranked_signals") or []:
+        if sig.get("recommended_action") == "LINKEDIN":
+            return sig, "Fresh verified LinkedIn candidate"
+
+    strategic = (result.get("operator_decisions") or {}).get("best_strategic_lead") or {}
+    if strategic.get("title"):
+        for sig in result.get("ranked_signals") or []:
+            if sig.get("title") == strategic.get("title"):
+                return sig, "Best strategic lead from active queue"
+
+    outputs = db_outputs or []
+    if outputs:
+        ranked = sorted(outputs, key=_score_output, reverse=True)
+        row = ranked[0]
+        pseudo = {
+            "title": str(row.get("internal_brief") or row.get("source_name") or "Synthesis")[:120],
+            "why_hamza_should_care": str(row.get("internal_brief") or row.get("what_most_people_missed") or "")[:600],
+            "region": row.get("region"),
+            "source": row.get("source_name"),
+            "niche_tier": _region_tier(str(row.get("region") or "")),
+        }
+        return pseudo, "Database synthesis (24–72h)"
+
+    archive = (result.get("operator_decisions") or {}).get("best_archive_signal") or {}
+    if archive.get("title"):
+        for sig in result.get("ranked_signals") or []:
+            if sig.get("title") == archive.get("title"):
+                return sig, "Evergreen archive — no live material"
+
+    return None, "none"
+
+
 def synthesize_linkedin_from_db(outputs: list[dict[str, Any]], horizon: str) -> tuple[str, str]:
-    """Build LinkedIn article from prior intelligence_outputs when no fresh signal exists."""
     if not outputs:
         return "", "none"
 
@@ -98,8 +154,25 @@ def synthesize_linkedin_from_db(outputs: list[dict[str, Any]], horizon: str) -> 
             "Watch for follow-on procurement, logistics, or force-posture indicators in the next scan window.",
         ]
     )
-    source_label = f"Database synthesis ({horizon})"
-    return "\n".join(lines), source_label
+    return "\n".join(lines), f"Database synthesis ({horizon})"
+
+
+def _build_source_package_for_signal(result: dict[str, Any], sig: dict[str, Any]) -> list[dict[str, Any]]:
+    package = []
+    if sig.get("url"):
+        package.append(
+            {
+                "name": sig.get("source") or "Source",
+                "url": sig.get("url"),
+                "published_date": sig.get("event_date") or "Unknown",
+                "tier": f"T{sig.get('niche_tier', 2)}",
+                "why_supports": sig.get("why_hamza_should_care") or "",
+            }
+        )
+    for item in result.get("source_citations") or []:
+        if item.get("url"):
+            package.append(item)
+    return package[:5]
 
 
 def build_linkedin_block(
@@ -109,48 +182,110 @@ def build_linkedin_block(
     day = str(result.get("day_of_week") or "")
     next_li = next_linkedin_day(day)
     next_window = f"{next_li} 09:00–11:00 PKT"
+    current_time = format_pkt_now(result)
+    window = linkedin_window_state(result)
     crisis = bool(result.get("crisis_detected"))
+    top_live = _top_live_signal(result)
+    live_score = int(top_live.get("live_event_score", 0)) if top_live else 0
+    crisis_exception = crisis or live_score >= 9
 
-    if not is_linkedin_day(day) and not crisis:
+    base = {
+        "window": "09:00–11:00 PKT",
+        "current_time": current_time,
+        "next_window": next_window,
+        "format": "LinkedIn analysis",
+        "source_package": [],
+        "why_this_topic": "",
+        "topic": "",
+        "copy_this": "",
+        "draft_ready": False,
+    }
+
+    if window == "not_scheduled" and not crisis_exception:
         return {
+            **base,
             "status": "Not scheduled today",
-            "next_window": next_window,
-            "todays_action": "No LinkedIn post required.",
+            "action": "No LinkedIn post required.",
             "content_source": "N/A",
             "article_post": "",
+            "todays_action": f"No LinkedIn post today ({day}). Next window: {next_window}.",
         }
 
-    fresh = pick_fresh_linkedin_signal(result)
-    if fresh and result.get("linkedin_post") and not str(result.get("linkedin_post", "")).startswith("[DRAFT"):
-        tier_label = f"Fresh verified Tier-{fresh.get('niche_tier', 1)} signal"
-        return {
-            "status": "Scheduled today",
-            "next_window": next_window,
-            "todays_action": "Post flagship analysis 09:00–11:00 PKT",
-            "content_source": tier_label,
-            "article_post": result.get("linkedin_post", ""),
-        }
+    topic_sig, topic_reason = pick_linkedin_topic(result, db_outputs)
+    article = str(result.get("linkedin_post") or "").strip()
+    if topic_sig and not article.startswith("[DRAFT"):
+        article = article or _draft_from_signal(topic_sig)
+    elif topic_sig and (not article or article.startswith("[DRAFT")):
+        article = _draft_from_signal(topic_sig)
+    elif not article or article.startswith("[DRAFT"):
+        article, source = synthesize_linkedin_from_db(db_outputs or [], "24–72 hours")
+        if not article and db_outputs:
+            article, source = synthesize_linkedin_from_db(db_outputs, "30 days")
+        topic_reason = source if article else topic_reason
 
-    outputs_7d = db_outputs or []
-    article, source = synthesize_linkedin_from_db(outputs_7d, "3–7 days")
-    if not article and outputs_7d:
-        article, source = synthesize_linkedin_from_db(outputs_7d, "30 days")
+    if topic_sig:
+        base["topic"] = topic_sig.get("title", "")
+        base["why_this_topic"] = topic_reason
+        base["source_package"] = _build_source_package_for_signal(result, topic_sig)
 
     if article:
         result["linkedin_post"] = article
-        result["linkedin_today"] = True
+        base["copy_this"] = article
+        base["draft_ready"] = True
+
+    if window == "before_window":
         return {
+            **base,
             "status": "Scheduled today",
-            "next_window": next_window,
-            "todays_action": "Post synthesis article 09:00–11:00 PKT",
-            "content_source": source,
+            "action": "Hold until window",
+            "content_source": topic_reason,
             "article_post": article,
+            "todays_action": "Draft ready — hold until 09:00 PKT.",
+        }
+
+    if window == "in_window":
+        return {
+            **base,
+            "status": "Post now",
+            "action": "Post now",
+            "content_source": topic_reason,
+            "article_post": article,
+            "todays_action": "COPY THIS — post during 09:00–11:00 PKT window.",
+        }
+
+    # after_window
+    if crisis_exception:
+        return {
+            **base,
+            "status": "Crisis exception",
+            "action": "Post now despite missed window",
+            "content_source": topic_reason,
+            "article_post": article,
+            "todays_action": f"Crisis/live_event_score {live_score} — post now even though window passed.",
+            "exception_reason": "Active crisis or live_event_score >= 9.",
         }
 
     return {
-        "status": "Scheduled today — draft missing",
-        "next_window": next_window,
-        "todays_action": "Regenerate scan; no usable intelligence_outputs in database.",
-        "content_source": "none",
-        "article_post": result.get("linkedin_post") or "",
+        **base,
+        "status": "Window passed",
+        "action": "Roll to next LinkedIn window",
+        "content_source": topic_reason,
+        "article_post": "",
+        "copy_this": "",
+        "draft_ready": bool(article),
+        "suggested_next_topic": base.get("topic") or "Use next scan's strategic lead.",
+        "todays_action": f"Missed window. Next normal window: {next_window}.",
     }
+
+
+def _draft_from_signal(sig: dict[str, Any]) -> str:
+    title = sig.get("title") or "Signal"
+    why = sig.get("why_hamza_should_care") or sig.get("action_rationale") or ""
+    region = sig.get("region") or "Global"
+    return (
+        f"{title}\n\n"
+        f"{why}\n\n"
+        f"Why this matters for operators tracking {region}: "
+        f"the second-order effects on logistics, energy, and defense-industrial posture "
+        f"often move before the headline cycle catches up."
+    ).strip()

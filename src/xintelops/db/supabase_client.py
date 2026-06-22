@@ -10,6 +10,7 @@ from supabase import Client, create_client
 
 from xintelops.config import Settings, get_settings
 from xintelops.delivery.linkedin_synthesis import build_linkedin_block
+from xintelops.delivery.live_events import normalize_event_key
 from xintelops.delivery.queue import resolve_queue
 
 PKT = timezone(timedelta(hours=5))
@@ -134,6 +135,124 @@ class SupabaseClient:
         except Exception:
             return []
 
+    def get_active_live_events(self) -> list[dict[str, Any]]:
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            result = (
+                self._require_client()
+                .table("active_live_events")
+                .select("*")
+                .eq("resolved", False)
+                .gte("active_until", now)
+                .order("live_event_score", desc=True)
+                .limit(20)
+                .execute()
+            )
+            return result.data or []
+        except Exception:
+            return []
+
+    def get_recent_recommendations(self, hours: int = 12) -> list[dict[str, Any]]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        try:
+            result = (
+                self._require_client()
+                .table("signal_recommendations")
+                .select("*")
+                .gte("recommended_at", cutoff)
+                .order("recommended_at", desc=True)
+                .limit(50)
+                .execute()
+            )
+            return result.data or []
+        except Exception:
+            return []
+
+    def persist_live_events(self, result: dict[str, Any]) -> None:
+        pending = result.get("_pending_active_events") or []
+        if not pending:
+            return
+        client = self._require_client()
+        now = datetime.now(timezone.utc).isoformat()
+        for event in pending:
+            key = event.get("normalized_event_key")
+            if not key:
+                continue
+            try:
+                existing = (
+                    client.table("active_live_events")
+                    .select("id, times_recommended, first_detected_at")
+                    .eq("normalized_event_key", key)
+                    .limit(1)
+                    .execute()
+                )
+                rows = existing.data or []
+                if rows:
+                    row = rows[0]
+                    client.table("active_live_events").update(
+                        {
+                            "last_seen_at": now,
+                            "active_until": event.get("active_until"),
+                            "live_event_score": event.get("live_event_score"),
+                            "momentum_score": event.get("momentum_score"),
+                            "crisis_flag": event.get("crisis_flag"),
+                            "latest_update_summary": event.get("latest_update_summary"),
+                            "current_status": "active",
+                            "scan_session": event.get("scan_session"),
+                            "freshness_class": event.get("freshness_class"),
+                            "updated_at": now,
+                        }
+                    ).eq("id", row["id"]).execute()
+                else:
+                    client.table("active_live_events").insert(event).execute()
+            except Exception:
+                continue
+
+    def log_immediate_recommendation(self, result: dict[str, Any]) -> None:
+        rec = result.get("_immediate_recommendation") or {}
+        title = rec.get("title") or (result.get("operator_decisions") or {}).get("one_signal_to_post", {}).get("title")
+        if not title:
+            return
+        action = rec.get("action") or "MONITOR"
+        if action not in {"X POST", "X THREAD"}:
+            return
+        key = rec.get("normalized_event_key") or normalize_event_key(title)
+        try:
+            self._require_client().table("signal_recommendations").insert(
+                {
+                    "normalized_event_key": key,
+                    "title": title,
+                    "freshness_class": rec.get("freshness_class"),
+                    "recommended_at": datetime.now(timezone.utc).isoformat(),
+                    "scan_session": result.get("scan_session"),
+                    "action": action,
+                    "live_event_score": rec.get("live_event_score"),
+                }
+            ).execute()
+        except Exception:
+            pass
+
+        try:
+            existing = (
+                self._require_client()
+                .table("active_live_events")
+                .select("times_recommended")
+                .eq("normalized_event_key", key)
+                .limit(1)
+                .execute()
+            )
+            rows = existing.data or []
+            times = (rows[0].get("times_recommended") or 0) + 1 if rows else 1
+            self._require_client().table("active_live_events").update(
+                {
+                    "last_recommended_at": datetime.now(timezone.utc).isoformat(),
+                    "times_recommended": times,
+                    "previous_action": action,
+                }
+            ).eq("normalized_event_key", key).execute()
+        except Exception:
+            pass
+
     def resolve_operator_queue(self, result: dict[str, Any]) -> dict[str, Any]:
         """Load prior queue, resolve conflicts, build LinkedIn block, attach content_queue."""
         previous = self.get_latest_content_schedule()
@@ -141,7 +260,10 @@ class SupabaseClient:
         if not outputs:
             outputs = self.get_intelligence_outputs_for_synthesis(days=30)
         result["linkedin_block"] = build_linkedin_block(result, outputs)
-        return resolve_queue(result, previous)
+        result = resolve_queue(result, previous)
+        self.persist_live_events(result)
+        self.log_immediate_recommendation(result)
+        return result
 
     def dual_write_legacy(self, result: dict[str, Any]) -> dict[str, int | None]:
         if not self.settings.dual_write_legacy:
