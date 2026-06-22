@@ -318,9 +318,11 @@ def is_slow_burn_analysis(signal: dict[str, Any]) -> bool:
 
 
 def live_event_trigger_count(signal: dict[str, Any]) -> int:
-    """Count how many of the 9 LIVE_EVENT_PRIORITY trigger conditions are met."""
-    blob = _blob(signal)
+    """Count how many of the LIVE_EVENT_PRIORITY trigger conditions are met."""
+    from xintelops.delivery.strategic_lane import compute_strategic_lane_score
+
     conditions = 0
+    blob = _blob(signal)
 
     if count_state_actors(signal) >= 2:
         conditions += 1
@@ -337,10 +339,8 @@ def live_event_trigger_count(signal: dict[str, Any]) -> int:
     if infer_consequence_score(signal) >= 6:
         conditions += 1
 
-    tier = signal.get("niche_tier") or _infer_niche_tier(
-        str(signal.get("region") or ""), str(signal.get("domain") or ""), str(signal.get("title") or "")
-    )
-    if tier <= 2:
+    lane = compute_strategic_lane_score(signal)
+    if lane >= 6:
         conditions += 1
 
     if recency >= 6 and infer_consequence_score(signal) >= 5:
@@ -365,15 +365,12 @@ def triggers_live_event_priority(signal: dict[str, Any]) -> bool:
 
 
 def compute_live_event_score(signal: dict[str, Any]) -> dict[str, Any]:
+    from xintelops.delivery.strategic_lane import compute_strategic_lane_score
+
     scores = signal.get("scores") or {}
-    tier = signal.get("niche_tier") or _infer_niche_tier(
-        str(signal.get("region") or ""),
-        str(signal.get("domain") or ""),
-        str(signal.get("title") or ""),
-    )
 
     actor_score = min(10, count_state_actors(signal) * 2 + 2)
-    region_score = {1: 9, 2: 7, 3: 4}.get(tier, 4)
+    lane_score = compute_strategic_lane_score(signal)
     recency = infer_recency_score(signal)
     confidence = {"HIGH": 9, "MEDIUM": 6, "LOW": 3}.get(str(signal.get("confidence") or "MEDIUM").upper(), 6)
     consequence = infer_consequence_score(signal)
@@ -389,7 +386,7 @@ def compute_live_event_score(signal: dict[str, Any]) -> dict[str, Any]:
 
     weighted = (
         actor_score * 0.12
-        + region_score * 0.10
+        + lane_score * 0.10
         + recency * 0.15
         + confidence * 0.10
         + consequence * 0.15

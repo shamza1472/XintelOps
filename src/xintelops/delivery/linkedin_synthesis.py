@@ -5,6 +5,7 @@ from typing import Any
 
 from xintelops.delivery.live_events import parse_pkt_scan_time
 from xintelops.delivery.ranking import infer_niche_tier
+from xintelops.delivery.strategic_lane import compute_strategic_lane_score, has_core_region_involvement
 
 PKT = timezone(timedelta(hours=5))
 
@@ -61,12 +62,18 @@ def _region_tier(region: str, domain: str = "") -> int:
 
 
 def _score_output(row: dict[str, Any]) -> int:
-    tier = _region_tier(str(row.get("region") or ""), str(row.get("domain") or ""))
+    pseudo = {
+        "title": str(row.get("internal_brief") or row.get("source_name") or ""),
+        "region": row.get("region"),
+        "domain": row.get("domain"),
+        "why_hamza_should_care": str(row.get("internal_brief") or row.get("what_most_people_missed") or ""),
+    }
+    lane = compute_strategic_lane_score(pseudo)
     confidence = str(row.get("confidence") or "").lower()
     conf_bonus = 3 if confidence == "high" else 1 if confidence == "medium" else 0
     crisis_bonus = 2 if row.get("crisis_flag") else 0
-    tier_bonus = {1: 10, 2: 6, 3: 1}.get(tier, 0)
-    return tier_bonus + conf_bonus + crisis_bonus
+    core_bonus = 3 if has_core_region_involvement(pseudo) else 0
+    return lane + conf_bonus + crisis_bonus + core_bonus
 
 
 def _top_live_signal(result: dict[str, Any]) -> dict[str, Any] | None:
@@ -122,35 +129,35 @@ def synthesize_linkedin_from_db(outputs: list[dict[str, Any]], horizon: str) -> 
         return "", "none"
 
     ranked = sorted(outputs, key=_score_output, reverse=True)
-    top_regions: dict[str, list[dict[str, Any]]] = {}
-    for row in ranked[:12]:
-        region = str(row.get("region") or "Global")
-        top_regions.setdefault(region, []).append(row)
+    primary = ranked[0]
+    secondary = ranked[1] if len(ranked) > 1 else None
 
-    primary_region = max(top_regions, key=lambda r: len(top_regions[r]))
-    cluster = top_regions[primary_region][:3]
-    topic_idx = hash(primary_region) % len(SYNTHESIS_TOPICS)
+    topic_idx = hash(str(primary.get("region") or "global")) % len(SYNTHESIS_TOPICS)
     topic = SYNTHESIS_TOPICS[topic_idx]
 
     lines = [
         f"{topic}",
         "",
-        f"Pattern synthesis from the last {horizon} of verified intelligence — not a recycled headline.",
+        f"Cross-event synthesis from the last {horizon} of verified intelligence — sources separated by claim.",
         "",
-        f"Regional focus: {primary_region}",
-        "",
+        "Primary Event:",
+        f"  {primary.get('source_name', 'Source')} — {str(primary.get('internal_brief') or primary.get('what_most_people_missed') or '')[:280]}",
     ]
-    for idx, row in enumerate(cluster, 1):
-        brief = str(row.get("internal_brief") or row.get("what_most_people_missed") or "")[:280]
-        lines.append(f"{idx}. {row.get('source_name', 'Source')} — {brief}")
-        if row.get("implications_7d"):
-            lines.append(f"   7d indicator: {str(row.get('implications_7d'))[:200]}")
-        lines.append("")
-
+    if secondary:
+        lines.extend(
+            [
+                "",
+                "Secondary Signal:",
+                f"  {secondary.get('source_name', 'Source')} — {str(secondary.get('internal_brief') or secondary.get('what_most_people_missed') or '')[:280]}",
+                "",
+                "Synthesis:",
+                "These signals may converge on a structural shift — verify the explicit linkage before posting.",
+            ]
+        )
     lines.extend(
         [
+            "",
             "Operator takeaway:",
-            "These signals converge on a structural shift, not a one-day headline.",
             "Watch for follow-on procurement, logistics, or force-posture indicators in the next scan window.",
         ]
     )
@@ -212,11 +219,12 @@ def build_linkedin_block(
         }
 
     topic_sig, topic_reason = pick_linkedin_topic(result, db_outputs)
+    cross_roles = result.get("cross_event_roles") or []
     article = str(result.get("linkedin_post") or "").strip()
     if topic_sig and not article.startswith("[DRAFT"):
-        article = article or _draft_from_signal(topic_sig)
+        article = article or _draft_from_signal(topic_sig, cross_roles)
     elif topic_sig and (not article or article.startswith("[DRAFT")):
-        article = _draft_from_signal(topic_sig)
+        article = _draft_from_signal(topic_sig, cross_roles)
     elif not article or article.startswith("[DRAFT"):
         article, source = synthesize_linkedin_from_db(db_outputs or [], "24–72 hours")
         if not article and db_outputs:
@@ -278,14 +286,16 @@ def build_linkedin_block(
     }
 
 
-def _draft_from_signal(sig: dict[str, Any]) -> str:
+def _draft_from_signal(sig: dict[str, Any], cross_roles: list[dict[str, Any]] | None = None) -> str:
     title = sig.get("title") or "Signal"
     why = sig.get("why_hamza_should_care") or sig.get("action_rationale") or ""
-    region = sig.get("region") or "Global"
-    return (
-        f"{title}\n\n"
-        f"{why}\n\n"
-        f"Why this matters for operators tracking {region}: "
-        f"the second-order effects on logistics, energy, and defense-industrial posture "
-        f"often move before the headline cycle catches up."
-    ).strip()
+    lane_why = sig.get("why_xintelops_fits") or ""
+    lines = [title, "", why]
+    if lane_why:
+        lines.extend(["", f"Why this fits XIntelOps ({sig.get('lane_relevance_type', 'Strategic')}): {lane_why}"])
+    if cross_roles:
+        secondary = [r for r in cross_roles if r.get("role") == "Secondary Signal"]
+        if secondary:
+            lines.extend(["", "Secondary Signal:", f"  {secondary[0].get('title', '')}"])
+            lines.extend(["", "Synthesis:", "  Verify explicit linkage between primary and secondary before posting."])
+    return "\n".join(lines).strip()

@@ -90,6 +90,8 @@ def _render_operator_block(block: dict[str, Any]) -> str:
         <div class="op-heading">Best Immediate Post</div>
         <div class="op-line"><strong>{_esc(immediate.get('title'))}</strong></div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(immediate.get('action'))} · Live event {_esc(immediate.get('live_event_score'))}/10 · Momentum {_esc(immediate.get('live_momentum'))}/10 · {_esc(immediate.get('freshness_class'))}</div>
+        <div class="op-line"><span class="op-key">Lane:</span> {_esc(immediate.get('lane_relevance_type'))} · Strategic lane {_esc(immediate.get('strategic_lane_score'))}/10 · Final {_esc(immediate.get('final_score'))}</div>
+        <div class="op-line"><span class="op-key">Why this fits XIntelOps:</span> {_esc(immediate.get('why_xintelops_fits'))}</div>
         <div class="op-line">{_esc(immediate.get('why'))}</div>
       </div>
       <div class="op-section">
@@ -120,9 +122,10 @@ def _render_operator_block(block: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('live_momentum') or {}).get('reason'))}</div>
       </div>
       <div class="op-section">
-        <div class="op-heading">Regional Priority Check</div>
-        <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('regional_priority') or {}).get('status'))}</div>
-        <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('regional_priority') or {}).get('reason'))}</div>
+        <div class="op-heading">Strategic Lane Check</div>
+        <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('strategic_lane') or block.get('regional_priority') or {}).get('status'))}</div>
+        <div class="op-line"><span class="op-key">Lane type:</span> {_esc((block.get('strategic_lane') or block.get('regional_priority') or {}).get('lane_relevance_type'))}</div>
+        <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('strategic_lane') or block.get('regional_priority') or {}).get('reason'))}</div>
       </div>
       <div class="op-section">
         <div class="op-heading">Queue</div>
@@ -149,13 +152,13 @@ def _render_ranked_signals(signals: list[dict[str, Any]]) -> str:
                 <div class="rank-title">{_esc(sig.get('title'))}</div>
                 <div class="rank-why">{_esc(sig.get('why_hamza_should_care'))}</div>
                 <div class="score-line">
-                  Rank {_esc(sig.get('rank_score'))} · Live event {_esc(sig.get('live_event_score'))} · {_esc(sig.get('freshness_class'))} ·
-                  Momentum {_esc(scores.get('live_momentum'))} · Edge {_esc(scores.get('edge'))} ·
-                  Post {_esc(scores.get('post_worthiness'))} · Forecast {_esc(scores.get('forecast_value'))} ·
-                  Niche {_esc(scores.get('niche_relevance'))} · T{_esc(sig.get('niche_tier'))}
-                  {' · 🚨 LIVE' if sig.get('live_momentum_override') else ''}
+                  Rank {_esc(sig.get('rank_score'))} · Final {_esc(sig.get('final_score', sig.get('rank_score')))} ·
+                  Live {_esc(sig.get('live_event_score'))} · Lane {_esc(sig.get('strategic_lane_score'))} ·
+                  Consequence {_esc(sig.get('consequence_score'))} · Boost {_esc(sig.get('region_actor_boost'))} ·
+                  {_esc(sig.get('freshness_class'))} · {_esc(sig.get('lane_relevance_type'))}
                   {' · ↩ carried' if sig.get('carried_forward') else ''}
                 </div>
+                <div class="score-line muted">{_esc(sig.get('why_it_ranked_here'))}</div>
                 <span class="tag {_action_tag_class(action)}">{_esc(action)}</span>
               </div>
             </div>
