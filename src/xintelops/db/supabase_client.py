@@ -149,21 +149,20 @@ class SupabaseClient:
 
         client = self._require_client()
         signal = result.get("top_signal", {})
+        raw_payload = {
+            "source_name": signal.get("source", "Unknown"),
+            "layer": signal.get("tier", "L0"),
+            "trust": signal.get("confidence", "medium"),
+            "region": signal.get("region", "Global"),
+            "domain": signal.get("domain", "diplomatic_signal"),
+            "title": signal.get("title", ""),
+            "summary": signal.get("summary", ""),
+            "url": signal.get("url", ""),
+            "processed": True,
+        }
         raw = (
             client.table("raw_signals")
-            .insert(
-                {
-                    "source_name": signal.get("source", "Unknown"),
-                    "layer": signal.get("tier", "L0"),
-                    "trust": signal.get("confidence", "medium"),
-                    "region": signal.get("region", "Global"),
-                    "domain": signal.get("domain", "diplomatic_signal"),
-                    "title": signal.get("title", ""),
-                    "summary": signal.get("summary", ""),
-                    "url": signal.get("url", ""),
-                    "processed": True,
-                }
-            )
+            .upsert(raw_payload, on_conflict="url")
             .execute()
         )
         raw_signal_id = raw.data[0]["id"] if raw.data else None
