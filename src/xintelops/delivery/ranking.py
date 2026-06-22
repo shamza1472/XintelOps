@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from xintelops.delivery.live_events import (
+    classify_freshness,
+    compute_live_event_score,
+    cooldown_penalty,
+    freshness_immediate_eligible,
+    is_slow_burn_analysis,
+)
+
 # --- Regional tiers ---
 
 TIER1_REGIONS = frozenset(
@@ -376,7 +384,12 @@ def _confidence_score(confidence: str) -> int:
     return mapping.get(str(confidence or "MEDIUM").upper(), 7)
 
 
-def compute_rank_score(signal: dict[str, Any]) -> dict[str, Any]:
+def compute_rank_score(
+    signal: dict[str, Any],
+    *,
+    rec_history: list[dict[str, Any]] | None = None,
+    has_stronger_live: bool = False,
+) -> dict[str, Any]:
     scores = signal.get("scores") or {}
     niche = int(scores.get("niche_relevance", 5))
     edge = int(scores.get("edge", 5))
@@ -386,23 +399,34 @@ def compute_rank_score(signal: dict[str, Any]) -> dict[str, Any]:
     momentum = infer_live_momentum(signal)
     scores["live_momentum"] = momentum
 
+    live_meta = compute_live_event_score(signal)
+    live_event_score = live_meta["live_event_score"]
+    signal["live_event_score"] = live_event_score
+    freshness = classify_freshness(signal)
+    signal["freshness_class"] = freshness
+
     tier = signal.get("niche_tier") or infer_niche_tier(
         str(signal.get("region") or ""),
         str(signal.get("domain") or ""),
         str(signal.get("title") or ""),
     )
     actors = count_priority_actors(signal)
-    use_override = momentum >= LIVE_MOMENTUM_THRESHOLD or actors >= 3
+    use_override = (
+        live_event_score >= LIVE_MOMENTUM_THRESHOLD
+        or momentum >= LIVE_MOMENTUM_THRESHOLD
+        or live_meta.get("live_event_priority")
+        or actors >= 3
+    )
 
     if use_override:
         base = (
-            momentum * N_OVERRIDE["momentum"] * 10
+            max(live_event_score, momentum) * N_OVERRIDE["momentum"] * 10
             + post * N_OVERRIDE["post"] * 10
             + niche * N_OVERRIDE["niche"] * 10
             + forecast * N_OVERRIDE["forecast"] * 10
             + conf * N_OVERRIDE["confidence"] * 10
         )
-        ranking_mode = "live_momentum_override"
+        ranking_mode = "live_event_priority" if live_event_score >= LIVE_MOMENTUM_THRESHOLD else "live_momentum_override"
     else:
         base = (
             niche * N_NORMAL["niche"] * 10
@@ -425,6 +449,21 @@ def compute_rank_score(signal: dict[str, Any]) -> dict[str, Any]:
     elif is_western_defense_signal(signal) and not has_second_order_relevance(signal) and momentum < LIVE_MOMENTUM_THRESHOLD:
         penalty = GENERIC_WESTERN_PENALTY
         penalty_reason = "Western defense signal lacks priority-theater linkage and live momentum"
+    elif freshness == "EVERGREEN":
+        penalty += 30
+        penalty_reason = (penalty_reason + " Evergreen content — not immediate post material.").strip()
+    elif freshness == "ANALYSIS" and is_slow_burn_analysis(signal):
+        penalty += 15
+        penalty_reason = (penalty_reason + " Slow-burn analysis — LinkedIn/archive candidate.").strip()
+    elif not freshness_immediate_eligible(signal, has_stronger_live):
+        penalty += 20
+        penalty_reason = (penalty_reason + f" Freshness {freshness} blocked for immediate post.").strip()
+
+    if rec_history:
+        cd_penalty, cd_reason = cooldown_penalty(signal, rec_history)
+        if cd_penalty:
+            penalty += cd_penalty
+            penalty_reason = (penalty_reason + " " + cd_reason).strip()
 
     final = base + tier_boost + theme_boost + actor_boost - penalty
     return {
@@ -437,14 +476,21 @@ def compute_rank_score(signal: dict[str, Any]) -> dict[str, Any]:
         "rank_score": round(final, 1),
         "niche_tier": tier,
         "live_momentum": momentum,
+        "live_event_score": live_event_score,
+        "freshness_class": freshness,
         "priority_actor_count": actors,
         "ranking_mode": ranking_mode,
         "live_momentum_override": use_override,
+        "live_event_priority": live_meta.get("live_event_priority", False),
     }
 
 
-def apply_ranking_bias(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    enriched: list[dict[str, Any]] = []
+def apply_ranking_bias(
+    signals: list[dict[str, Any]],
+    *,
+    rec_history: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    prepped: list[dict[str, Any]] = []
     for sig in signals:
         item = dict(sig)
         item["niche_tier"] = item.get("niche_tier") or infer_niche_tier(
@@ -455,9 +501,25 @@ def apply_ranking_bias(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if "scores" not in item:
             item["scores"] = {}
         item["scores"]["live_momentum"] = infer_live_momentum(item)
-        ranking = compute_rank_score(item)
+        prepped.append(item)
+
+    has_stronger_live = any(
+        compute_live_event_score(s)["live_event_score"] >= LIVE_MOMENTUM_THRESHOLD for s in prepped
+    )
+
+    enriched: list[dict[str, Any]] = []
+    for item in prepped:
+        ranking = compute_rank_score(
+            item,
+            rec_history=rec_history,
+            has_stronger_live=has_stronger_live,
+        )
         item.update(ranking)
-        item["scores"] = {**(item.get("scores") or {}), "live_momentum": ranking["live_momentum"]}
+        item["scores"] = {
+            **(item.get("scores") or {}),
+            "live_momentum": ranking["live_momentum"],
+            "live_event_score": ranking["live_event_score"],
+        }
 
         action = str(item.get("recommended_action") or "MONITOR").upper()
         if is_generic_western_content(item) and action in {"X POST", "X THREAD", "LINKEDIN"}:
@@ -466,7 +528,22 @@ def apply_ranking_bias(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 (item.get("action_rationale") or "")
                 + " [Auto-demoted: generic Western defense without live momentum.]"
             ).strip()
+        elif item.get("freshness_class") == "EVERGREEN" and action in {"X POST", "X THREAD"}:
+            item["recommended_action"] = "ARCHIVE"
+            item["action_rationale"] = (
+                (item.get("action_rationale") or "") + " [Auto-demoted: evergreen — use LinkedIn/archive.]"
+            ).strip()
+        elif (
+            is_slow_burn_analysis(item)
+            and ranking.get("penalty", 0) >= 40
+            and action in {"X POST", "X THREAD"}
+        ):
+            item["recommended_action"] = "MONITOR"
+            item["action_rationale"] = (
+                (item.get("action_rationale") or "") + " [Cooldown: slow-burn already recommended recently.]"
+            ).strip()
 
+        item["canonical_action"] = item.get("recommended_action")
         enriched.append(item)
 
     enriched.sort(key=lambda s: s.get("rank_score", 0), reverse=True)
@@ -476,32 +553,49 @@ def apply_ranking_bias(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _post_eligible(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        s
-        for s in signals
-        if s.get("recommended_action") in {"X POST", "X THREAD", "LINKEDIN"}
-        or (s.get("rank_score", 0) >= 60 and not is_generic_western_content(s))
-    ]
+    has_live = any(s.get("live_event_score", 0) >= LIVE_MOMENTUM_THRESHOLD for s in signals)
+    eligible = []
+    for s in signals:
+        if not freshness_immediate_eligible(s, has_live):
+            continue
+        if s.get("recommended_action") in {"X POST", "X THREAD", "LINKEDIN"}:
+            eligible.append(s)
+        elif s.get("rank_score", 0) >= 60 and not is_generic_western_content(s):
+            eligible.append(s)
+        elif s.get("live_event_score", 0) >= LIVE_MOMENTUM_THRESHOLD:
+            eligible.append(s)
+    return eligible
 
 
 def select_immediate_post(signals: list[dict[str, Any]], agent_pick: dict[str, Any] | None) -> dict[str, Any]:
-    """Highest-value post right now: rank_score + live momentum, not static region alone."""
+    """Highest-value post right now: live_event_score + rank_score, not static region alone."""
     eligible = _post_eligible(signals) or [s for s in signals if not is_generic_western_content(s)]
     if not eligible:
         return signals[0] if signals else {}
 
-    by_rank = sorted(eligible, key=lambda s: s.get("rank_score", 0), reverse=True)
+    by_rank = sorted(
+        eligible,
+        key=lambda s: (s.get("live_event_score", 0), s.get("rank_score", 0)),
+        reverse=True,
+    )
     top = by_rank[0]
+
+    # live_event_score >= 9 wins unless source confidence is weak
+    high_live = [s for s in by_rank if s.get("live_event_score", 0) >= 9]
+    if high_live:
+        confident = [s for s in high_live if str(s.get("confidence", "")).upper() != "LOW"]
+        if confident:
+            return confident[0]
 
     agent_title = (agent_pick or {}).get("title")
     if agent_title:
         agent_sig = next((s for s in signals if s.get("title") == agent_title), None)
         if agent_sig and not is_generic_western_content(agent_sig):
-            agent_momentum = agent_sig.get("live_momentum", 0)
-            top_momentum = top.get("live_momentum", 0)
-            if top.get("rank_score", 0) > agent_sig.get("rank_score", 0) + 5 and top_momentum >= LIVE_MOMENTUM_THRESHOLD:
+            agent_live = agent_sig.get("live_event_score", 0)
+            top_live = top.get("live_event_score", 0)
+            if top.get("rank_score", 0) > agent_sig.get("rank_score", 0) + 5 and top_live >= LIVE_MOMENTUM_THRESHOLD:
                 return top
-            if agent_momentum >= LIVE_MOMENTUM_THRESHOLD and count_priority_actors(agent_sig) >= 3:
+            if agent_live >= LIVE_MOMENTUM_THRESHOLD and count_priority_actors(agent_sig) >= 2:
                 return agent_sig
             if agent_sig.get("rank_score", 0) >= top.get("rank_score", 0) - 3:
                 return agent_sig

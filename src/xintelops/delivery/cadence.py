@@ -53,9 +53,14 @@ def build_posting_cadence(result: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def enrich_result(result: dict[str, Any]) -> dict[str, Any]:
+def enrich_result(
+    result: dict[str, Any],
+    *,
+    active_events: list[dict[str, Any]] | None = None,
+    rec_history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Fill operator, LinkedIn, and cadence fields so emails are never empty."""
-    result = enrich_operator_result(result)
+    result = enrich_operator_result(result, active_events=active_events, rec_history=rec_history)
     day = str(result.get("day_of_week") or "")
 
     if "linkedin_today" not in result or result.get("linkedin_today") is None:
