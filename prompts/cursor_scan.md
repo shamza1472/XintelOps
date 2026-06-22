@@ -56,18 +56,22 @@ Discussion potential? Audience relevance? Strategic implications?
 Likely to evolve into a larger story? Future signal generator? Validates/invalidates forecasts?
 
 ### NICHE RELEVANCE SCORE
-Boost for Tier 1 regions:
-- China, Gulf, Iran, Red Sea, Horn of Africa, Pakistan, India, Levant, strategic logistics corridors
+Audience relevance for XIntelOps — **not a hard regional gate**.
 
-Boost Tier 2: Central Asia, Caucasus, East Africa, ASEAN
+Boost when the story touches strategic-lane themes:
+- Chokepoints, shipping lanes, ports, energy flows, sanctions, defense procurement
+- Dual-use technology, ISR/drones/EW/cyber, logistics corridors, maritime security
+- Nuclear negotiations, ceasefire/mediation, influence ops, undersea cables, supply-chain vulnerability
 
-Reduce for: generic NATO statements, routine European politics, US domestic noise, recycled press conferences
+Core geography (China, Gulf, Iran, Pakistan, India, Red Sea, Horn/East Africa, Indian Ocean, Central Asia, Levant, Turkey, Caucasus, Southeast Asia) adds weight — but **does not decide** the score.
 
-Tier 3 (Europe / Ukraine / Russia): only when the story has strong global defense-industrial, energy, Black Sea, sanctions, or China-linked implications.
+Secondary regions (Europe, Russia, US, NATO, Japan, Australia, broader Africa, Latin America) score higher only when linked to energy, sanctions, maritime routes, defense supply chains, basing, or chokepoints.
 
-Also assign `niche_tier`: **1**, **2**, or **3**
+**Any region can win** if event structure + consequence + live momentum are high enough (Panama/Suez disruption, Black Sea grain blockade, undersea cable attack, etc.).
 
-**Scores are internal.** Do not over-explain scoring in drafts. They appear only in the ranked list.
+Also assign `niche_tier`: **1**, **2**, or **3** (informational only — finalize uses strategic-lane scoring)
+
+**Scores are internal.** Do not over-explain scoring in drafts. Diagnostic fields appear in the ranked list.
 
 ### LIVE MOMENTUM SCORE (1–10)
 Measures real-time urgency — not static region preference.
@@ -114,20 +118,30 @@ Boosts: Tier 1 +15 · Tier 2 +8 · Strategic theme +5 · Multi-actor (3+) +12
 
 Penalties: Generic NATO/Ukraine without live momentum **-20** · Evergreen **-30** · Slow-burn repeat within 12h **-50**
 
-### SELECTION LOGIC — NOT REGION-DOGMATIC
+### SELECTION LOGIC — STRATEGIC LANE, NOT REGION-DOGMATIC
 
-Priority regions define **identity**. Live event score defines **timing**. Both matter.
+Regions and actors are **weighted priors**, not rigid gates. Finalize computes:
 
-Do NOT pick a Tier-1 analysis piece if a live multi-actor diplomatic/military/market event has higher real-time relevance.
+`final_score = live_event×0.25 + consequence×0.20 + source_confidence×0.15 + update_velocity×0.10 + forecast×0.10 + audience×0.10 + strategic_lane×0.10 + region_actor_boost − penalties`
+
+`region_actor_boost` cannot exceed event structure + consequence combined weight.
 
 Separate three outputs:
-1. **best_immediate_post** — highest engagement right now (freshness + momentum + sources)
-2. **best_strategic_lead** — strongest long-term tracking lead (forecast + edge)
+1. **best_immediate_post** — highest engagement right now (freshness + momentum + consequence + lane themes)
+2. **best_strategic_lead** — strongest long-term tracking lead (forecast + edge + lane)
 3. **best_archive_signal** — useful but not post-worthy
 
-Before finalizing, ask: **"What is the most important strategic signal right now?"** — not just "What is Tier 1?"
+Every **best_immediate_post** must include **why this fits XIntelOps** with one of:
+- Direct lane relevance
+- Indirect lane relevance
+- Global strategic relevance
+- Live momentum override
 
-Generic Ukraine/NATO → ARCHIVE/MONITOR unless live momentum ≥ 8 with priority actors.
+Before finalizing, ask: **"Does this reshape a strategic corridor, chokepoint, energy flow, or alignment — and is it live enough to matter now?"**
+
+Routine NATO/Ukraine aid updates → ARCHIVE/MONITOR unless chokepoint/energy/sanctions structural link exists.
+
+Cross-event synthesis (LinkedIn): label Primary Event / Secondary Signal / Background / Watchlist. X stays primary-event focused.
 
 ### SELECTION QUESTIONS
 
@@ -267,6 +281,8 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
         "live_momentum": 9
       },
       "freshness_class": "LIVE",
+      "strategic_lane_score": 8,
+      "lane_relevance_type": "Direct lane relevance",
       "recommended_action": "X THREAD",
       "action_rationale": "",
       "second_order_relevance": false,
@@ -280,8 +296,11 @@ Write **ONLY valid JSON** to `artifacts/scan_result.json`:
       "title": "",
       "action": "X THREAD",
       "why": "",
+      "why_xintelops_fits": "",
+      "lane_relevance_type": "Direct lane relevance",
       "live_momentum": 9,
-      "ranking_mode": "live_momentum_override"
+      "strategic_lane_score": 8,
+      "ranking_mode": "strategic_lane_live"
     },
     "best_strategic_lead": {
       "title": "",

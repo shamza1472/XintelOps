@@ -16,6 +16,7 @@ from xintelops.delivery.ranking import (
     select_post_with_quota,
     select_strategic_lead,
 )
+from xintelops.delivery.strategic_lane import assign_cross_event_roles, build_why_xintelops_fits
 
 
 def _clamp_score(value: Any, default: int = 5) -> int:
@@ -158,6 +159,9 @@ def enrich_operator_result(
 
     immediate["canonical_action"] = post_action
 
+    lane_type = immediate.get("lane_relevance_type", "")
+    why_lane = immediate.get("why_xintelops_fits") or build_why_xintelops_fits(immediate, lane_type)
+
     decisions["best_immediate_post"] = {
         "title": immediate.get("title", ""),
         "action": post_action,
@@ -166,6 +170,12 @@ def enrich_operator_result(
         "live_event_score": immediate.get("live_event_score", 0),
         "freshness_class": immediate.get("freshness_class", ""),
         "ranking_mode": immediate.get("ranking_mode", "normal"),
+        "lane_relevance_type": lane_type,
+        "why_xintelops_fits": why_lane,
+        "strategic_lane_score": immediate.get("strategic_lane_score", 0),
+        "final_score": immediate.get("final_score", immediate.get("rank_score", 0)),
+        "why_it_ranked_here": immediate.get("why_it_ranked_here", ""),
+        "guardrail_applied": immediate.get("guardrail_applied", ""),
     }
     decisions["best_strategic_lead"] = {
         "title": strategic.get("title", ""),
@@ -195,8 +205,10 @@ def enrich_operator_result(
 
     result["operator_decisions"] = decisions
     result["regional_priority_check"] = regional_check
+    result["strategic_lane_check"] = regional_check
     result["live_momentum_check"] = momentum_check
-    result["operator_mode"] = result.get("operator_mode") or "vNext-live-events"
+    result["cross_event_roles"] = assign_cross_event_roles(normalized, immediate.get("title", ""))
+    result["operator_mode"] = result.get("operator_mode") or "vNext-strategic-lane"
 
     if post_action == "X THREAD":
         result["post_format"] = "THREAD"

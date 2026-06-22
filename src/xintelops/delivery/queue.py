@@ -222,7 +222,8 @@ def resolve_queue(
         },
         "linkedin": result.get("linkedin_block") or {},
         "queue": queue,
-        "regional_priority": result.get("regional_priority_check") or {},
+        "regional_priority": result.get("strategic_lane_check") or result.get("regional_priority_check") or {},
+        "strategic_lane": result.get("strategic_lane_check") or result.get("regional_priority_check") or {},
         "live_momentum": result.get("live_momentum_check") or {},
         "active_live_events": result.get("active_live_events") or {},
         "immediate_vs_strategic": {
