@@ -26,6 +26,17 @@ def format_pkt(dt: datetime) -> str:
     return dt.astimezone(PKT).strftime("%Y-%m-%d %H:%M PKT")
 
 
+def _ensure_datetime(value: datetime | str | None, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return fallback
+
+
 def _format_draft(result: dict[str, Any], action: str) -> str:
     if action == "X THREAD":
         thread = result.get("x_thread")
@@ -178,6 +189,8 @@ def resolve_queue(
     source_package = build_source_package(result, post_title)
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
     active_expires = scan_time + timedelta(hours=ACTIVE_EXPIRES_HOURS)
+    later_active_from = _ensure_datetime(later_active_from, scan_time + timedelta(hours=LATER_WINDOW_HOURS))
+    later_expires_at = _ensure_datetime(later_expires_at, scan_time + timedelta(hours=LATER_EXPIRY_HOURS))
 
     operator_block = {
         "x": {
