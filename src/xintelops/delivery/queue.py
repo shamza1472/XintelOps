@@ -26,6 +26,14 @@ def format_pkt(dt: datetime) -> str:
     return dt.astimezone(PKT).strftime("%Y-%m-%d %H:%M PKT")
 
 
+def _to_iso(dt: datetime | str | None) -> str | None:
+    if dt is None:
+        return None
+    if isinstance(dt, datetime):
+        return dt.isoformat()
+    return str(dt)
+
+
 def _format_draft(result: dict[str, Any], action: str) -> str:
     if action == "X THREAD":
         thread = result.get("x_thread")
@@ -217,8 +225,8 @@ def resolve_queue(
         "later_signal": later_candidate.get("title") or "",
         "later_format": later_candidate.get("format") or "X POST",
         "later_draft": later_candidate.get("draft") or "",
-        "later_active_from": later_active_from.isoformat() if later_candidate.get("title") else None,
-        "later_expires_at": later_expires_at.isoformat() if later_candidate.get("title") else None,
+        "later_active_from": _to_iso(later_active_from) if later_candidate.get("title") else None,
+        "later_expires_at": _to_iso(later_expires_at) if later_candidate.get("title") else None,
         "later_status": queue["status"] if later_candidate.get("title") else "none",
         "later_replaced_by": post_title if queue["status"] == "replaced" else None,
         "later_reason": queue["reason"],
