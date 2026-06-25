@@ -300,7 +300,8 @@ class LiveEventAcceptanceTests(unittest.TestCase):
         }
         self.assertEqual(linkedin_window_state(result), "in_window")
         block = build_linkedin_block(result, [])
-        self.assertEqual(block["status"], "Post now")
+        self.assertEqual(block["status"], "In scheduled window")
+        self.assertEqual(block["action"], "Post now")
 
     def test_enrich_operator_lane_fields(self):
         result = enrich_operator_result(

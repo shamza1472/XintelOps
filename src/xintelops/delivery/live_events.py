@@ -592,20 +592,25 @@ def freshness_immediate_eligible(signal: dict[str, Any], has_stronger_live: bool
 
 def build_active_live_event_block(carry_log: list[dict[str, Any]], selected_title: str = "") -> dict[str, Any]:
     if not carry_log:
-        return {"events": [], "summary": "No active live events carried from prior scans."}
+        return {"events": [], "summary": "No active live events tracked this scan."}
 
     events = []
-    for ev in carry_log:
+    for idx, ev in enumerate(carry_log, 1):
         status = ev.get("carry_status") or ev.get("current_status") or "active"
         if selected_title and ev.get("title") == selected_title and status == "carried_forward":
             status = "carried_forward"
+        material = "yes" if status in {"updated", "carried_forward", "active"} else "no"
         events.append(
             {
+                "index": idx,
                 "title": ev.get("title", ""),
                 "status": status,
                 "active_until": ev.get("active_until", ""),
+                "last_seen": ev.get("last_seen_at") or ev.get("last_seen") or "",
                 "last_update": ev.get("latest_update_summary") or ev.get("carry_reason") or "",
+                "material_change": material,
                 "current_action": ev.get("previous_action") or "MONITOR",
+                "operator_decision": ev.get("previous_action") or "Monitor",
                 "reason": ev.get("carry_reason") or ev.get("latest_update_summary") or "",
                 "live_event_score": ev.get("live_event_score"),
             }

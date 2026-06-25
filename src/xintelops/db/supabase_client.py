@@ -259,6 +259,10 @@ class SupabaseClient:
         outputs = self.get_intelligence_outputs_for_synthesis(days=7)
         if not outputs:
             outputs = self.get_intelligence_outputs_for_synthesis(days=30)
+        from xintelops.delivery.signal_display import format_top_signals_block
+
+        if not result.get("top_signals_display"):
+            result["top_signals_display"] = format_top_signals_block(result)
         result["linkedin_block"] = build_linkedin_block(result, outputs)
         result = resolve_queue(result, previous)
         self.persist_live_events(result)

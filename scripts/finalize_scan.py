@@ -41,6 +41,10 @@ def main() -> int:
         active_events = runner.db.get_active_live_events()
         rec_history = runner.db.get_recent_recommendations(hours=12)
     result = enrich_result(result, active_events=active_events, rec_history=rec_history)
+    result["_delivery_context"] = {
+        "active_events": active_events,
+        "rec_history": rec_history,
+    }
     outcome = runner.finalize(result)
     logging.info("Finalize complete: %s", outcome)
     return 0

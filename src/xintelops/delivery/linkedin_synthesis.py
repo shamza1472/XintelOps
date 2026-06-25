@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
+from xintelops.delivery.crisis_tier import POSTING_TIERS, classify_scan_tier
+from xintelops.delivery.editorial import editorial_pipeline
 from xintelops.delivery.live_events import parse_pkt_scan_time
 from xintelops.delivery.ranking import infer_niche_tier
 from xintelops.delivery.strategic_lane import compute_strategic_lane_score, has_core_region_involvement
@@ -191,10 +193,11 @@ def build_linkedin_block(
     next_window = f"{next_li} 09:00–11:00 PKT"
     current_time = format_pkt_now(result)
     window = linkedin_window_state(result)
-    crisis = bool(result.get("crisis_detected"))
+    tier_meta = result.get("crisis_tier_meta") or classify_scan_tier(result)
+    immediate_tier = tier_meta.get("immediate_tier") or "ROUTINE"
+    crisis_exception = immediate_tier in POSTING_TIERS
     top_live = _top_live_signal(result)
     live_score = int(top_live.get("live_event_score", 0)) if top_live else 0
-    crisis_exception = crisis or live_score >= 9
 
     base = {
         "window": "09:00–11:00 PKT",
@@ -212,9 +215,10 @@ def build_linkedin_block(
         return {
             **base,
             "status": "Not scheduled today",
-            "action": "No LinkedIn post required.",
+            "action": "Hold until next LinkedIn window",
             "content_source": "N/A",
             "article_post": "",
+            "copy_this": "",
             "todays_action": f"No LinkedIn post today ({day}). Next window: {next_window}.",
         }
 
@@ -237,52 +241,81 @@ def build_linkedin_block(
         base["source_package"] = _build_source_package_for_signal(result, topic_sig)
 
     if article:
+        edited = editorial_pipeline(article, base.get("source_package") or [], primary_title=base.get("topic") or "")
+        if not edited.get("blocked"):
+            article = edited["text"]
+            base["_editorial_scores"] = edited.get("scores")
         result["linkedin_post"] = article
-        base["copy_this"] = article
-        base["draft_ready"] = True
+        base["article_post"] = article
 
     if window == "before_window":
         return {
             **base,
-            "status": "Scheduled today",
-            "action": "Hold until window",
+            "status": "Before scheduled window",
+            "action": "Hold until window opens",
             "content_source": topic_reason,
-            "article_post": article,
+            "copy_this": "",
+            "draft_ready": bool(article),
             "todays_action": "Draft ready — hold until 09:00 PKT.",
         }
 
     if window == "in_window":
         return {
             **base,
-            "status": "Post now",
+            "status": "In scheduled window",
             "action": "Post now",
             "content_source": topic_reason,
-            "article_post": article,
+            "copy_this": article if article and not article.startswith("No LinkedIn post today") else "",
+            "draft_ready": bool(article),
             "todays_action": "COPY THIS — post during 09:00–11:00 PKT window.",
         }
 
-    # after_window
-    if crisis_exception:
+    if window == "not_scheduled" and crisis_exception:
+        return {
+            **base,
+            "status": "Crisis exception",
+            "action": "Post now despite non-scheduled day",
+            "content_source": topic_reason,
+            "article_post": article,
+            "copy_this": article if article and not article.startswith("No LinkedIn post today") else "",
+            "todays_action": f"Crisis tier {immediate_tier} — post now despite non-scheduled day.",
+            "exception_reason": f"Tier {immediate_tier} triggers LinkedIn exception.",
+        }
+
+    # after_window on scheduled day
+    if window == "after_window" and crisis_exception:
         return {
             **base,
             "status": "Crisis exception",
             "action": "Post now despite missed window",
             "content_source": topic_reason,
             "article_post": article,
-            "todays_action": f"Crisis/live_event_score {live_score} — post now even though window passed.",
-            "exception_reason": "Active crisis or live_event_score >= 9.",
+            "copy_this": article if article and not article.startswith("No LinkedIn post today") else "",
+            "todays_action": f"Crisis tier {immediate_tier} — post now even though window passed.",
+            "exception_reason": f"Tier {immediate_tier} triggers LinkedIn exception.",
+        }
+
+    if window == "after_window":
+        return {
+            **base,
+            "status": "Window passed",
+            "action": "Roll to next LinkedIn window",
+            "content_source": topic_reason,
+            "article_post": "",
+            "copy_this": "",
+            "draft_ready": False,
+            "suggested_next_topic": base.get("topic") or "Use next scan's strategic lead.",
+            "todays_action": f"Missed window. Next normal window: {next_window}.",
         }
 
     return {
         **base,
-        "status": "Window passed",
-        "action": "Roll to next LinkedIn window",
+        "status": "Not scheduled today",
+        "action": "Hold until next LinkedIn window",
         "content_source": topic_reason,
         "article_post": "",
         "copy_this": "",
-        "draft_ready": bool(article),
-        "suggested_next_topic": base.get("topic") or "Use next scan's strategic lead.",
-        "todays_action": f"Missed window. Next normal window: {next_window}.",
+        "todays_action": f"No LinkedIn post today ({day}). Next window: {next_window}.",
     }
 
 

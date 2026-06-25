@@ -120,7 +120,8 @@ class LiveEventAcceptanceTests(unittest.TestCase):
         }
         self.assertEqual(linkedin_window_state(result), "in_window")
         block = build_linkedin_block(result, [])
-        self.assertEqual(block["status"], "Post now")
+        self.assertEqual(block["status"], "In scheduled window")
+        self.assertEqual(block["action"], "Post now")
         self.assertTrue(block.get("copy_this"))
 
     def test_b_monday_after_window_no_crisis(self):
@@ -137,13 +138,23 @@ class LiveEventAcceptanceTests(unittest.TestCase):
         self.assertIn("Wednesday", block.get("next_window", ""))
 
     def test_b_crisis_exception_after_window(self):
+        live = _live_diplomacy_signal()
         result = {
             "day_of_week": "Monday",
             "date_pkt": "2026-06-22",
             "time_pkt": "18:00 PKT",
-            "crisis_detected": True,
-            "ranked_signals": [_live_diplomacy_signal()],
+            "ranked_signals": [live],
+            "operator_decisions": {
+                "best_immediate_post": {"title": live["title"]},
+                "one_signal_to_post": {"title": live["title"], "action": "X THREAD"},
+            },
             "linkedin_post": "Crisis LinkedIn post.",
+        }
+        result["crisis_tier_meta"] = {
+            "immediate_tier": "FLASHPOINT",
+            "posting_exception": True,
+            "crisis_detected": True,
+            "scan_tier": "FLASHPOINT",
         }
         block = build_linkedin_block(result, [])
         self.assertEqual(block["status"], "Crisis exception")

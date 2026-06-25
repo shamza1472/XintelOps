@@ -4,7 +4,10 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from xintelops.delivery.editorial import editorial_pipeline
 from xintelops.delivery.ranking import compute_rank_score
+from xintelops.delivery.source_roles import build_role_separated_package
+from xintelops.delivery.x_copy import apply_x_copy_to_result, format_thread_for_display, prepare_x_copy
 
 PKT = timezone(timedelta(hours=5))
 LATER_WINDOW_HOURS = 4
@@ -27,32 +30,60 @@ def format_pkt(dt: datetime) -> str:
 
 
 def _format_draft(result: dict[str, Any], action: str) -> str:
-    if action == "X THREAD":
-        thread = result.get("x_thread")
-        if isinstance(thread, list):
-            return "\n\n".join(f"{i}/ {t}" for i, t in enumerate(thread, 1))
-        return str(thread or result.get("x_post") or "")
-    return str(result.get("x_post") or "")
+    """Build publishable X copy with normalization and editorial pass."""
+    result = apply_x_copy_to_result(result, action)
+    meta = result.get("_x_copy_meta") or prepare_x_copy(result, action)
+    if meta.get("blocked"):
+        return ""
+
+    copy_text = meta.get("copy_text") or ""
+    primary_title = (
+        (result.get("operator_decisions") or {}).get("one_signal_to_post") or {}
+    ).get("title", "")
+    buckets = build_role_separated_package(result, primary_title)
+    flat_sources = []
+    for items in buckets.values():
+        flat_sources.extend(items)
+
+    if meta.get("copy_type") == "thread":
+        edited_tweets = []
+        for tweet in meta.get("tweets") or []:
+            edited = editorial_pipeline(tweet, flat_sources, primary_title=primary_title)
+            if edited.get("blocked"):
+                result["_x_copy_meta"] = {**meta, "blocked": True, "block_reason": edited.get("block_reason")}
+                return ""
+            edited_tweets.append(edited["text"])
+        result["x_thread"] = edited_tweets
+        result["_editorial_scores"] = edited.get("scores") if edited_tweets else {}
+        result["_claim_map"] = edited.get("claims") if edited_tweets else []
+        return format_thread_for_display(edited_tweets, add_brand_footer=True)
+
+    edited = editorial_pipeline(copy_text, flat_sources, primary_title=primary_title)
+    if edited.get("blocked"):
+        result["_x_copy_meta"] = {**meta, "blocked": True, "block_reason": edited.get("block_reason")}
+        return ""
+    result["x_post"] = edited["text"]
+    result["_editorial_scores"] = edited.get("scores")
+    result["_claim_map"] = edited.get("claims")
+    return edited["text"]
 
 
 def _format_label(action: str) -> str:
     if action == "X THREAD":
         return "THREAD"
     if action == "X POST":
-        return "SINGLE TWEET"
+        return "SINGLE POST"
     return action
 
 
 def build_source_package(result: dict[str, Any], signal_title: str = "") -> list[dict[str, Any]]:
     title = signal_title or (result.get("operator_decisions") or {}).get("one_signal_to_post", {}).get("title", "")
 
-    # Prefer package entries bound to the selected signal title
     explicit = result.get("source_package")
     if isinstance(explicit, list) and explicit:
         bound = [p for p in explicit if title and title.lower()[:40] in str(p.get("why_supports", "")).lower()]
         if bound:
             return bound[:5]
-        # Use explicit only if top signal title appears in why_supports of any entry
         if any(title.lower()[:30] in str(p.get("why_supports", "")).lower() for p in explicit):
             return explicit[:5]
 
@@ -92,17 +123,16 @@ def build_source_package(result: dict[str, Any], signal_title: str = "") -> list
             }
         )
 
-    if not package and selected:
-        if selected.get("url"):
-            package.append(
-                {
-                    "name": selected.get("source") or "Source",
-                    "url": selected.get("url"),
-                    "published_date": selected.get("event_date") or "Unknown",
-                    "tier": f"T{selected.get('niche_tier', 2)}",
-                    "why_supports": selected.get("why_hamza_should_care") or "",
-                }
-            )
+    if not package and selected and selected.get("url"):
+        package.append(
+            {
+                "name": selected.get("source") or "Source",
+                "url": selected.get("url"),
+                "published_date": selected.get("event_date") or "Unknown",
+                "tier": f"T{selected.get('niche_tier', 2)}",
+                "why_supports": selected.get("why_hamza_should_care") or "",
+            }
+        )
     return package[:5]
 
 
@@ -161,9 +191,7 @@ def resolve_queue(
         prev_later_expires_raw = previous.get("later_expires_at")
         if prev_later_expires_raw:
             try:
-                prev_later_expires = datetime.fromisoformat(
-                    str(prev_later_expires_raw).replace("Z", "+00:00")
-                )
+                prev_later_expires = datetime.fromisoformat(str(prev_later_expires_raw).replace("Z", "+00:00"))
             except ValueError:
                 prev_later_expires = None
 
@@ -205,21 +233,47 @@ def resolve_queue(
                 later_expires_at = prev_later_expires
             later_active_from = previous.get("later_active_from") or later_active_from
 
-    source_package = build_source_package(result, post_title)
+    source_buckets = build_role_separated_package(result, post_title)
+    flat_sources = []
+    for items in source_buckets.values():
+        flat_sources.extend(items)
+
+    draft = ""
+    x_blocked = False
+    x_block_reason = ""
+    effective_action = post_action
+
+    if post_action in {"X POST", "X THREAD"}:
+        draft = _format_draft(result, post_action)
+        meta = result.get("_x_copy_meta") or {}
+        if meta.get("blocked") or not draft:
+            x_blocked = True
+            x_block_reason = meta.get("block_reason") or "Operator action requires publishable X copy, but no X copy was available."
+            effective_action = "MONITOR"
+            draft = ""
+
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
     active_expires = scan_time + timedelta(hours=ACTIVE_EXPIRES_HOURS)
 
+    x_section = {
+        "action": effective_action,
+        "requested_action": post_action,
+        "format": _format_label(post_action) if not x_blocked else "BLOCKED",
+        "post_now": post_title,
+        "deadline": format_pkt(active_deadline),
+        "expires": format_pkt(active_expires),
+        "why_this_won": post_why,
+        "source_package": flat_sources,
+        "source_buckets": source_buckets,
+        "draft": draft,
+        "copy_blocked": x_blocked,
+        "block_reason": x_block_reason,
+        "editorial_scores": result.get("_editorial_scores") or {},
+        "claim_map": result.get("_claim_map") or [],
+    }
+
     operator_block = {
-        "x": {
-            "action": post_action,
-            "format": _format_label(post_action),
-            "post_now": post_title,
-            "deadline": format_pkt(active_deadline),
-            "expires": format_pkt(active_expires),
-            "why_this_won": post_why,
-            "source_package": source_package,
-            "draft": _format_draft(result, post_action),
-        },
+        "x": x_section,
         "linkedin": result.get("linkedin_block") or {},
         "queue": queue,
         "regional_priority": result.get("strategic_lane_check") or result.get("regional_priority_check") or {},
@@ -231,21 +285,22 @@ def resolve_queue(
             "strategic": (result.get("operator_decisions") or {}).get("best_strategic_lead") or {},
             "archive": (result.get("operator_decisions") or {}).get("best_archive_signal") or {},
         },
+        "top_signals": result.get("top_signals_display") or {},
     }
 
     queue_status = queue["status"]
-    if post_action in {"X POST", "X THREAD"}:
+    if effective_action in {"X POST", "X THREAD"} and not x_blocked:
         queue_status = f"active_{queue['status']}"
 
     result["operator_block"] = operator_block
     result["content_queue"] = {
         "active_now_signal": post_title,
-        "active_now_format": _format_label(post_action),
-        "active_now_draft": _format_draft(result, post_action),
+        "active_now_format": _format_label(effective_action) if not x_blocked else "BLOCKED",
+        "active_now_draft": draft,
         "active_now_deadline": active_deadline.isoformat(),
         "active_now_expires_at": active_expires.isoformat(),
         "active_now_reason": post_why,
-        "active_now_source_package": source_package,
+        "active_now_source_package": flat_sources,
         "later_signal": later_candidate.get("title") or "",
         "later_format": later_candidate.get("format") or "X POST",
         "later_draft": later_candidate.get("draft") or "",
@@ -256,7 +311,7 @@ def resolve_queue(
         "later_reason": queue["reason"],
         "queue_status": queue_status,
         "operator_action_summary": (
-            f"Post now: {post_title} ({_format_label(post_action)}). "
+            f"{'BLOCKED' if x_blocked else 'Post now'}: {post_title} ({_format_label(post_action)}). "
             f"Queue: {queue['reason']}"
         ),
     }

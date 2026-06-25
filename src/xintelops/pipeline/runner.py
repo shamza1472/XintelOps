@@ -40,8 +40,20 @@ class PipelineRunner:
         self.settings.scan_bundle_path.write_text(bundle, encoding="utf-8")
         return items, bundle
 
-    def finalize(self, result: dict[str, Any]) -> dict[str, Any]:
-        result = enrich_result(result)
+    def finalize(
+        self,
+        result: dict[str, Any],
+        *,
+        active_events: list[dict[str, Any]] | None = None,
+        rec_history: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        ctx = result.get("_delivery_context") or {}
+        if not result.get("_enriched"):
+            result = enrich_result(
+                result,
+                active_events=active_events or ctx.get("active_events"),
+                rec_history=rec_history or ctx.get("rec_history"),
+            )
         if self.db.client:
             result = self.db.resolve_operator_queue(result)
         synth_id = None

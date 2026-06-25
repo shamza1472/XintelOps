@@ -4,56 +4,78 @@ import html
 from typing import Any
 
 from xintelops.delivery.cadence import enrich_result
-from xintelops.delivery.operator import _action_tag_class
+from xintelops.delivery.source_roles import render_source_package_html
 
 
 def _esc(value: Any) -> str:
     return html.escape(str(value or ""))
 
 
-def _render_source_package(sources: list[dict[str, Any]]) -> str:
-    if not sources:
-        return '<p class="muted">No source package attached.</p>'
-    rows = []
-    for src in sources:
-        url = src.get("url") or ""
-        link = f'<a href="{_esc(url)}" class="post-url">{_esc(url)}</a>' if url else "—"
-        rows.append(
-            f"<li><strong>{_esc(src.get('name'))}</strong> · tier {_esc(src.get('tier'))} · "
-            f"{_esc(src.get('published_date'))}<br>{link}<br>"
-            f"<span class='muted'>{_esc(src.get('why_supports'))}</span></li>"
-        )
-    return f"<ul class='source-list'>{''.join(rows)}</ul>"
-
-
 def _render_active_live_events(active: dict[str, Any]) -> str:
     events = active.get("events") or []
     if not events:
-        return f'<div class="op-line muted">{_esc(active.get("summary", "No active live events."))}</div>'
+        return f'<div class="op-line muted">{_esc(active.get("summary", "No active live events tracked this scan."))}</div>'
     rows = []
     for ev in events:
+        idx = ev.get("index") or len(rows) + 1
         rows.append(
             f"""
-            <div class="op-line"><strong>{_esc(ev.get('title'))}</strong></div>
+            <div class="op-line"><strong>{idx}. {_esc(ev.get('title'))}</strong></div>
             <div class="op-line"><span class="op-key">Status:</span> {_esc(ev.get('status'))}</div>
-            <div class="op-line"><span class="op-key">Active until:</span> {_esc(ev.get('active_until'))}</div>
-            <div class="op-line"><span class="op-key">Last update:</span> {_esc(ev.get('last_update'))}</div>
-            <div class="op-line"><span class="op-key">Action:</span> {_esc(ev.get('current_action'))}</div>
-            <div class="op-line"><span class="op-key">Reason:</span> {_esc(ev.get('reason'))}</div>
+            <div class="op-line"><span class="op-key">Last seen:</span> {_esc(ev.get('last_seen') or ev.get('last_update'))}</div>
+            <div class="op-line"><span class="op-key">Material change:</span> {_esc(ev.get('material_change', 'unknown'))}</div>
+            <div class="op-line"><span class="op-key">Operator decision:</span> {_esc(ev.get('operator_decision') or ev.get('current_action'))}</div>
             """
         )
-    return "".join(rows)
+    return f'<div class="op-line muted">{_esc(active.get("summary"))}</div>' + "".join(rows)
+
+
+def _render_x_post_section(x: dict[str, Any]) -> str:
+    if x.get("copy_blocked"):
+        return f"""
+        <div class="op-section">
+          <div class="op-heading">X BLOCKED — COPY NOT GENERATED</div>
+          <div class="op-line">Reason: {_esc(x.get('block_reason') or 'Operator action requires publishable X copy, but no X copy was available.')}</div>
+          <div class="op-line">Fallback: Monitor only until copy is generated.</div>
+        </div>
+        """
+
+    copy_block = ""
+    draft = x.get("draft") or ""
+    if draft:
+        copy_block = f"""
+        <div class="op-line"><span class="op-key">COPY THIS</span></div>
+        <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(draft).replace(chr(10), '<br>')}</div>
+        """
+
+    buckets = x.get("source_buckets") or {}
+    source_html = render_source_package_html(buckets, _esc) if buckets else ""
+
+    return f"""
+      <div class="op-section">
+        <div class="op-heading">X — post now</div>
+        <div class="op-line"><span class="op-key">Action:</span> {_esc(x.get('action'))}</div>
+        <div class="op-line"><span class="op-key">Format:</span> {_esc(x.get('format'))}</div>
+        <div class="op-line"><span class="op-key">Post now:</span> <strong>{_esc(x.get('post_now'))}</strong></div>
+        <div class="op-line"><span class="op-key">Deadline:</span> {_esc(x.get('deadline'))}</div>
+        <div class="op-line"><span class="op-key">Expires:</span> {_esc(x.get('expires'))}</div>
+        <div class="op-line"><span class="op-key">Why this won:</span> {_esc(x.get('why_this_won'))}</div>
+        {copy_block}
+        {source_html}
+      </div>
+    """
 
 
 def _render_linkedin_decision(li: dict[str, Any]) -> str:
     copy_block = ""
-    if li.get("copy_this") and li.get("status") in {"Post now", "Crisis exception", "Scheduled today"}:
+    show_copy_statuses = {"Post now", "Crisis exception", "Scheduled today", "In scheduled window"}
+    if li.get("copy_this") and li.get("status") in show_copy_statuses:
         copy_block = f"""
         <div class="op-line"><span class="op-key">COPY THIS:</span></div>
         <div class="post-box linkedin" style="margin-top:6px;">{_esc(li.get('copy_this', '')).replace(chr(10), '<br>')}</div>
         """
     why_no = ""
-    if not li.get("topic") and li.get("status") == "Not scheduled today":
+    if li.get("status") in {"Not scheduled today", "Window passed"} and not li.get("copy_this"):
         why_no = f'<div class="op-line">{_esc(li.get("todays_action"))}</div>'
 
     return f"""
@@ -64,11 +86,8 @@ def _render_linkedin_decision(li: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Current time:</span> {_esc(li.get('current_time'))}</div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(li.get('action'))}</div>
         <div class="op-line"><span class="op-key">Topic:</span> <strong>{_esc(li.get('topic'))}</strong></div>
-        <div class="op-line"><span class="op-key">Format:</span> {_esc(li.get('format'))}</div>
         <div class="op-line"><span class="op-key">Why this topic:</span> {_esc(li.get('why_this_topic'))}</div>
         {copy_block}
-        <div class="op-line"><span class="op-key">Source package:</span></div>
-        {_render_source_package(li.get('source_package') or [])}
         {why_no}
       </div>
     """
@@ -89,44 +108,13 @@ def _render_operator_block(block: dict[str, Any]) -> str:
       <div class="op-section">
         <div class="op-heading">Best Immediate Post</div>
         <div class="op-line"><strong>{_esc(immediate.get('title'))}</strong></div>
-        <div class="op-line"><span class="op-key">Action:</span> {_esc(immediate.get('action'))} · Live event {_esc(immediate.get('live_event_score'))}/10 · Momentum {_esc(immediate.get('live_momentum'))}/10 · {_esc(immediate.get('freshness_class'))}</div>
-        <div class="op-line"><span class="op-key">Lane:</span> {_esc(immediate.get('lane_relevance_type'))} · Strategic lane {_esc(immediate.get('strategic_lane_score'))}/10 · Final {_esc(immediate.get('final_score'))}</div>
+        <div class="op-line"><span class="op-key">Action:</span> {_esc(immediate.get('action'))} · Live event {_esc(immediate.get('live_event_score'))}/10 · {_esc(immediate.get('freshness_class'))}</div>
+        <div class="op-line"><span class="op-key">Lane:</span> {_esc(immediate.get('lane_relevance_type'))} · Final {_esc(immediate.get('final_score'))}</div>
         <div class="op-line"><span class="op-key">Why this fits XIntelOps:</span> {_esc(immediate.get('why_xintelops_fits'))}</div>
         <div class="op-line">{_esc(immediate.get('why'))}</div>
       </div>
-      <div class="op-section">
-        <div class="op-heading">Best Strategic Lead</div>
-        <div class="op-line"><strong>{_esc((block.get('immediate_vs_strategic') or {}).get('strategic', {}).get('title'))}</strong></div>
-        <div class="op-line">{_esc((block.get('immediate_vs_strategic') or {}).get('strategic', {}).get('why'))}</div>
-      </div>
-      <div class="op-section">
-        <div class="op-heading">Best Archive Signal</div>
-        <div class="op-line"><strong>{_esc((block.get('immediate_vs_strategic') or {}).get('archive', {}).get('title'))}</strong></div>
-        <div class="op-line">{_esc((block.get('immediate_vs_strategic') or {}).get('archive', {}).get('why'))}</div>
-      </div>
-      <div class="op-section">
-        <div class="op-heading">X — post now</div>
-        <div class="op-line"><span class="op-key">Action:</span> {_esc(x.get('action'))}</div>
-        <div class="op-line"><span class="op-key">Format:</span> {_esc(x.get('format'))}</div>
-        <div class="op-line"><span class="op-key">Post now:</span> <strong>{_esc(x.get('post_now'))}</strong></div>
-        <div class="op-line"><span class="op-key">Deadline:</span> {_esc(x.get('deadline'))}</div>
-        <div class="op-line"><span class="op-key">Expires:</span> {_esc(x.get('expires'))}</div>
-        <div class="op-line"><span class="op-key">Why this won:</span> {_esc(x.get('why_this_won'))}</div>
-        <div class="op-line"><span class="op-key">Source package:</span></div>
-        {_render_source_package(x.get('source_package') or [])}
-      </div>
+      {_render_x_post_section(x)}
       {_render_linkedin_decision(li)}
-      <div class="op-section">
-        <div class="op-heading">Live Momentum Check</div>
-        <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('live_momentum') or {}).get('status'))}</div>
-        <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('live_momentum') or {}).get('reason'))}</div>
-      </div>
-      <div class="op-section">
-        <div class="op-heading">Strategic Lane Check</div>
-        <div class="op-line"><span class="op-key">Status:</span> {_esc((block.get('strategic_lane') or block.get('regional_priority') or {}).get('status'))}</div>
-        <div class="op-line"><span class="op-key">Lane type:</span> {_esc((block.get('strategic_lane') or block.get('regional_priority') or {}).get('lane_relevance_type'))}</div>
-        <div class="op-line"><span class="op-key">Reason:</span> {_esc((block.get('strategic_lane') or block.get('regional_priority') or {}).get('reason'))}</div>
-      </div>
       <div class="op-section">
         <div class="op-heading">Queue</div>
         <div class="op-line"><span class="op-key">Previous later-post:</span> {_esc(queue.get('previous_later_post') or 'None')}</div>
@@ -137,34 +125,17 @@ def _render_operator_block(block: dict[str, Any]) -> str:
     """
 
 
-def _render_ranked_signals(signals: list[dict[str, Any]]) -> str:
-    if not signals:
+def _render_top_signals(display: dict[str, Any]) -> str:
+    if not display:
         return '<p class="muted">No ranked signals.</p>'
-    rows = []
-    for sig in signals:
-        scores = sig.get("scores") or {}
-        action = sig.get("canonical_action") or sig.get("recommended_action") or "MONITOR"
-        rows.append(
-            f"""
-            <div class="rank-row">
-              <div class="rank-num">{_esc(sig.get('rank'))}</div>
-              <div class="rank-body">
-                <div class="rank-title">{_esc(sig.get('title'))}</div>
-                <div class="rank-why">{_esc(sig.get('why_hamza_should_care'))}</div>
-                <div class="score-line">
-                  Rank {_esc(sig.get('rank_score'))} · Final {_esc(sig.get('final_score', sig.get('rank_score')))} ·
-                  Live {_esc(sig.get('live_event_score'))} · Lane {_esc(sig.get('strategic_lane_score'))} ·
-                  Consequence {_esc(sig.get('consequence_score'))} · Boost {_esc(sig.get('region_actor_boost'))} ·
-                  {_esc(sig.get('freshness_class'))} · {_esc(sig.get('lane_relevance_type'))}
-                  {' · ↩ carried' if sig.get('carried_forward') else ''}
-                </div>
-                <div class="score-line muted">{_esc(sig.get('why_it_ranked_here'))}</div>
-                <span class="tag {_action_tag_class(action)}">{_esc(action)}</span>
-              </div>
-            </div>
-            """
-        )
-    return "".join(rows)
+    parts = [
+        f'<div class="muted">{_esc(display.get("header"))}</div>',
+    ]
+    for entry in display.get("entries") or []:
+        parts.append(f'<div class="post-box" style="margin-top:8px;font-size:12px;">{_esc(entry).replace(chr(10), "<br>")}</div>')
+    if display.get("footer"):
+        parts.append(f'<div class="muted" style="margin-top:8px;">{_esc(display.get("footer"))}</div>')
+    return "".join(parts)
 
 
 def _render_journalist(journalist: dict[str, Any]) -> str:
@@ -191,15 +162,19 @@ def build_email_html(result: dict[str, Any]) -> str:
     else:
         result = dict(result)
     block = result.get("operator_block") or {}
-    x_block = block.get("x") or {}
     li_block = block.get("linkedin") or {}
-    ranked = result.get("ranked_signals") or []
     journalist = result.get("journalist") or {}
+    top_display = block.get("top_signals") or result.get("top_signals_display") or {}
 
-    draft = x_block.get("draft") or result.get("x_post") or ""
+    tier_meta = result.get("crisis_tier_meta") or {}
+    scan_tier = tier_meta.get("scan_tier") or result.get("scan_tier") or "ROUTINE"
+    crisis_header = scan_tier in {"CRISIS", "FLASHPOINT"}
+
     show_linkedin = li_block.get("copy_this") and li_block.get("status") in {
-        "Post now", "Crisis exception", "Scheduled today"
+        "Post now", "Crisis exception", "Scheduled today", "In scheduled window"
     }
+
+    runtime = (result.get("runtime") or {}).get("runtime_label") or "unknown"
 
     return f"""<!DOCTYPE html>
 <html>
@@ -212,6 +187,10 @@ def build_email_html(result: dict[str, Any]) -> str:
   .logo-mark {{ background: #2a6fdb; color: white; font-weight: 900; font-size: 12px; padding: 3px 7px; border-radius: 3px; }}
   .logo-text {{ color: #e8edf2; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; margin-left: 8px; }}
   .header-sub {{ color: #6a7a8e; font-size: 11px; margin-top: 6px; font-family: monospace; }}
+  .stats-bar {{ background: #13181f; padding: 10px 20px; display: flex; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #1e2733; }}
+  .stat {{ font-family: monospace; font-size: 11px; color: #4a5a6e; }}
+  .stat span {{ color: #4da6ff; font-weight: 700; }}
+  .stat.crisis span {{ color: #e05252; }}
   .body {{ background: #fff; border-radius: 0 0 6px 6px; overflow: hidden; }}
   .section {{ padding: 16px 20px; border-bottom: 1px solid #eef1f5; }}
   .section-label {{ font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #8a9ab0; margin-bottom: 10px; }}
@@ -222,17 +201,6 @@ def build_email_html(result: dict[str, Any]) -> str:
   .op-line {{ margin-bottom: 4px; }}
   .op-key {{ color: #8a9ab0; }}
   .source-list {{ margin: 6px 0 0 16px; padding: 0; color: #c8d4e0; font-size: 11px; }}
-  .rank-row {{ display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f0f2f5; }}
-  .rank-num {{ font-size: 16px; font-weight: 800; color: #2a6fdb; min-width: 20px; font-family: monospace; }}
-  .rank-title {{ font-size: 13px; font-weight: 600; }}
-  .rank-why {{ font-size: 12px; color: #5a6a7e; margin: 3px 0 5px; }}
-  .score-line {{ font-size: 10px; color: #8a9ab0; font-family: monospace; margin-bottom: 5px; }}
-  .tag {{ font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; font-family: monospace; }}
-  .tag-action-post {{ background: #e8f0fe; color: #2a6fdb; }}
-  .tag-action-linkedin {{ background: #f0f7ff; color: #1a5fbf; }}
-  .tag-action-track {{ background: #fde8e8; color: #b03030; }}
-  .tag-action-monitor {{ background: #fef6e8; color: #b87a00; }}
-  .tag-action-ignore {{ background: #f4f6f9; color: #8a9ab0; }}
   .post-box {{ background: #f8f9fb; border: 1px solid #e0e5ed; border-left: 3px solid #2a6fdb; border-radius: 4px; padding: 12px 14px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }}
   .post-box.linkedin {{ border-left-color: #0a66c2; background: #f0f7ff; }}
   .post-box.purple {{ border-left-color: #7c5cbf; }}
@@ -245,26 +213,30 @@ def build_email_html(result: dict[str, Any]) -> str:
 <body>
 <div class="wrapper">
   <div class="header">
-    <span class="logo-mark">XI</span><span class="logo-text">OPERATOR BRIEF</span>
+    <span class="logo-mark">XI</span><span class="logo-text">XINTELOPS OPERATOR BRIEF</span>
     <div class="header-sub">{_esc(result.get('date_pkt'))} · {_esc(result.get('time_pkt'))} · {_esc(result.get('scan_session'))}</div>
+  </div>
+  <div class="stats-bar">
+    <div class="stat">TIER <span>{_esc(scan_tier)}</span></div>
+    <div class="stat crisis">CRISIS <span>{'YES' if crisis_header else 'NO'}</span></div>
+    <div class="stat">VERIFIED <span>{_esc(result.get('signals_verified', 0))}</span></div>
   </div>
   <div class="body">
     <div class="section">
-      <div class="section-label">Operator decision block — read first</div>
+      <div class="section-label">Operator decision block</div>
       {_render_operator_block(block)}
     </div>
     <div class="section">
-      <div class="section-label">Top signals today</div>
-      {_render_ranked_signals(ranked)}
+      <div class="section-label">Top Signals Today</div>
+      {_render_top_signals(top_display)}
     </div>
-    {'<div class="section"><div class="section-label">Draft — ' + _esc(x_block.get("format", "POST")) + '</div><div class="post-box">' + _esc(draft).replace(chr(10), "<br>") + '</div>' + _render_source_package(x_block.get("source_package") or []) + '</div>' if draft else ''}
-    {'<div class="section"><div class="section-label">LinkedIn — ' + _esc(li_block.get("status", "POST")) + '</div><div class="post-box linkedin">' + _esc(li_block.get("copy_this") or li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div>' + _render_source_package(li_block.get("source_package") or []) + '</div>' if show_linkedin else ''}
+    {'<div class="section"><div class="section-label">LinkedIn — ' + _esc(li_block.get("status", "POST")) + '</div><div class="post-box linkedin">' + _esc(li_block.get("copy_this") or li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div></div>' if show_linkedin else ''}
     <div class="section">
       <div class="section-label">Journalist engagement</div>
       {_render_journalist(journalist)}
     </div>
   </div>
-  <div class="footer">Operator layer · content_schedule queue · {_esc(result.get('scan_session'))}<br>Runtime: {_esc((result.get('runtime') or {}).get('runtime_label') or 'unknown')}</div>
+  <div class="footer">XIntelOps Operator Brief · content_schedule queue · {_esc(result.get('scan_session'))}<br>Runtime: {_esc(runtime)}</div>
 </div>
 </body>
 </html>"""

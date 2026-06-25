@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from xintelops.delivery.crisis_tier import classify_scan_tier
 from xintelops.delivery.linkedin_synthesis import build_linkedin_block
 from xintelops.delivery.operator import enrich_operator_result
 from xintelops.delivery.queue import resolve_queue
+from xintelops.delivery.signal_display import format_top_signals_block
 
 
 def is_linkedin_day(day_name: str) -> bool:
@@ -119,12 +121,19 @@ def enrich_result(
             )
         result["internal_brief"] = "\n".join(lines)
 
+    tier_meta = classify_scan_tier(result)
+    result["crisis_tier_meta"] = tier_meta
+    result["crisis_detected"] = tier_meta.get("crisis_detected", False)
+    result["scan_tier"] = tier_meta.get("scan_tier", "ROUTINE")
+    result["top_signals_display"] = format_top_signals_block(result)
+
     if not result.get("linkedin_block"):
         result["linkedin_block"] = build_linkedin_block(result, [])
-    if not result.get("operator_block"):
-        result = resolve_queue(result, None)
+
+    result = resolve_queue(result, None)
 
     if not result.get("posting_cadence"):
         result["posting_cadence"] = build_posting_cadence(result)
 
+    result["_enriched"] = True
     return result
