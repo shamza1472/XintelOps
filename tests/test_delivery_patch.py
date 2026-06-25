@@ -345,5 +345,42 @@ class TestCrisisTiering(unittest.TestCase):
         self.assertEqual(tier, "MONITOR")
 
 
+class TestRuntimeFooter(unittest.TestCase):
+    def test_runtime_footer_shows_actual_commit(self):
+        from xintelops.runtime_metadata import attach_runtime_metadata, get_runtime_metadata
+
+        meta = get_runtime_metadata()
+        self.assertTrue(meta.get("runtime_commit_short"))
+        self.assertIn("@", meta.get("runtime_label", ""))
+
+        result = attach_runtime_metadata(_base_result())
+        self.assertIn("runtime", result)
+        self.assertEqual(result["runtime"]["runtime_commit_short"], meta["runtime_commit_short"])
+
+
+class TestLinkedInNoContradiction(unittest.TestCase):
+    def test_linkedin_decision_and_copy_do_not_contradict(self):
+        routine_sig = {
+            **_thread_signal(),
+            "live_event_score": 5,
+            "consequence_score": 5,
+            "update_velocity": 4,
+            "scores": {"live_momentum": 4},
+        }
+        result = _base_result(
+            day_of_week="Thursday",
+            time_pkt="22:29 PKT",
+            ranked_signals=[routine_sig],
+            linkedin_post="No LinkedIn post today (Thursday). Next window: Friday 09:00–11:00 PKT.",
+        )
+        result["crisis_tier_meta"] = classify_scan_tier(result)
+        block = build_linkedin_block(result, [])
+        if block["action"] in {"Post now", "Post now despite missed window", "Post now despite non-scheduled day"}:
+            self.assertTrue(block.get("copy_this"))
+            self.assertNotIn("No LinkedIn post today", block.get("copy_this", ""))
+        else:
+            self.assertFalse(block.get("copy_this"))
+
+
 if __name__ == "__main__":
     unittest.main()
