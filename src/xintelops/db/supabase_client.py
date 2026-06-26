@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from xintelops.delivery.live_events import normalize_event_key
 from xintelops.delivery.queue import resolve_queue
 
 PKT = timezone(timedelta(hours=5))
+logger = logging.getLogger(__name__)
 
 
 class SupabaseClient:
@@ -275,24 +277,36 @@ class SupabaseClient:
 
         client = self._require_client()
         signal = result.get("top_signal", {})
-        raw = (
-            client.table("raw_signals")
-            .insert(
-                {
-                    "source_name": signal.get("source", "Unknown"),
-                    "layer": signal.get("tier", "L0"),
-                    "trust": signal.get("confidence", "medium"),
-                    "region": signal.get("region", "Global"),
-                    "domain": signal.get("domain", "diplomatic_signal"),
-                    "title": signal.get("title", ""),
-                    "summary": signal.get("summary", ""),
-                    "url": signal.get("url", ""),
-                    "processed": True,
-                }
+        raw_payload = {
+            "source_name": signal.get("source", "Unknown"),
+            "layer": signal.get("tier", "L0"),
+            "trust": signal.get("confidence", "medium"),
+            "region": signal.get("region", "Global"),
+            "domain": signal.get("domain", "diplomatic_signal"),
+            "title": signal.get("title", ""),
+            "summary": signal.get("summary", ""),
+            "url": signal.get("url", ""),
+            "processed": True,
+        }
+        raw_signal_id: int | None = None
+        try:
+            raw = client.table("raw_signals").insert(raw_payload).execute()
+            raw_signal_id = raw.data[0]["id"] if raw.data else None
+        except Exception as exc:
+            if "raw_signals_url_key" not in str(exc):
+                raise
+            url = raw_payload.get("url")
+            if not url:
+                raise
+            existing = (
+                client.table("raw_signals")
+                .select("id")
+                .eq("url", url)
+                .limit(1)
+                .execute()
             )
-            .execute()
-        )
-        raw_signal_id = raw.data[0]["id"] if raw.data else None
+            raw_signal_id = existing.data[0]["id"] if existing.data else None
+            logger.info("Reusing existing raw_signal for url=%s id=%s", url, raw_signal_id)
 
         output = (
             client.table("intelligence_outputs")
