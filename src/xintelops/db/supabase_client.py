@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from xintelops.config import Settings, get_settings
@@ -275,24 +276,33 @@ class SupabaseClient:
 
         client = self._require_client()
         signal = result.get("top_signal", {})
-        raw = (
-            client.table("raw_signals")
-            .insert(
-                {
-                    "source_name": signal.get("source", "Unknown"),
-                    "layer": signal.get("tier", "L0"),
-                    "trust": signal.get("confidence", "medium"),
-                    "region": signal.get("region", "Global"),
-                    "domain": signal.get("domain", "diplomatic_signal"),
-                    "title": signal.get("title", ""),
-                    "summary": signal.get("summary", ""),
-                    "url": signal.get("url", ""),
-                    "processed": True,
-                }
-            )
-            .execute()
-        )
-        raw_signal_id = raw.data[0]["id"] if raw.data else None
+        raw_payload = {
+            "source_name": signal.get("source", "Unknown"),
+            "layer": signal.get("tier", "L0"),
+            "trust": signal.get("confidence", "medium"),
+            "region": signal.get("region", "Global"),
+            "domain": signal.get("domain", "diplomatic_signal"),
+            "title": signal.get("title", ""),
+            "summary": signal.get("summary", ""),
+            "url": signal.get("url", ""),
+            "processed": True,
+        }
+        raw_signal_id: int | None = None
+        try:
+            raw = client.table("raw_signals").insert(raw_payload).execute()
+            raw_signal_id = raw.data[0]["id"] if raw.data else None
+        except APIError as exc:
+            if exc.code == "23505" and raw_payload["url"]:
+                existing = (
+                    client.table("raw_signals")
+                    .select("id")
+                    .eq("url", raw_payload["url"])
+                    .limit(1)
+                    .execute()
+                )
+                raw_signal_id = existing.data[0]["id"] if existing.data else None
+            else:
+                raise
 
         output = (
             client.table("intelligence_outputs")
