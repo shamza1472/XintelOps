@@ -3,6 +3,23 @@ from __future__ import annotations
 import re
 from typing import Any
 
+SLOP_REWRITES: tuple[tuple[str, str], ...] = (
+    ("second-order angle most feeds skip", "Secondary risk"),
+    ("xintelops angle:", "The relevant linkage is"),
+    ("xintelops angle", "The relevant linkage is"),
+    ("most feeds skip", "Secondary risk"),
+    ("not a headline cycle", "not a standalone event"),
+    ("chokepoint crisis", "chokepoint pressure"),
+    ("watch next 12h", "Watch next scan window"),
+    ("operators should watch", "Worth monitoring"),
+    ("world's most critical", "high-consequence"),
+    ("world's most watched", "widely tracked"),
+    ("before headlines catch up", "before broader coverage"),
+    ("post now while sources are converging", "Sources are still converging"),
+    ("this is no longer bilateral", "This now involves multiple actors"),
+    ("generic headline cycle", "routine headline cycle"),
+)
+
 SLOP_PHRASES = (
     "this changes everything",
     "the world is watching",
@@ -27,6 +44,17 @@ SLOP_PHRASES = (
     "xintelops tracks",
     "dominate analyst conversation",
     "analysts splitting attention",
+    "xintelops angle",
+    "most feeds skip",
+    "not a headline cycle",
+    "chokepoint crisis",
+    "watch next 12h",
+    "world's most critical",
+    "world's most watched",
+    "before headlines catch up",
+    "post now while sources are converging",
+    "this is no longer bilateral",
+    "generic headline cycle",
 )
 
 CERTAINTY_REPLACEMENTS = (
@@ -47,8 +75,15 @@ HALLUCINATION_PATTERNS = (
 )
 
 
-def _strip_slop_phrases(text: str) -> str:
+def _apply_slop_rewrites(text: str) -> str:
     out = text
+    for old, new in sorted(SLOP_REWRITES, key=lambda x: -len(x[0])):
+        out = re.sub(re.escape(old), new, out, flags=re.IGNORECASE)
+    return out
+
+
+def _strip_slop_phrases(text: str) -> str:
+    out = _apply_slop_rewrites(text)
     for phrase in SLOP_PHRASES:
         out = re.sub(re.escape(phrase), "", out, flags=re.IGNORECASE)
     out = re.sub(r"🧵", "", out)

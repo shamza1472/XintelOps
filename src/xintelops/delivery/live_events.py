@@ -5,6 +5,12 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from xintelops.delivery.active_event_clusters import (
+    MAX_ACTIVE_CLUSTERS,
+    assess_carry_status,
+    cluster_active_events,
+)
+
 PKT = timezone(timedelta(hours=5))
 
 FRESHNESS_CLASSES = frozenset({"BREAKING", "LIVE", "DEVELOPING", "ANALYSIS", "EVERGREEN"})
@@ -422,6 +428,29 @@ def should_persist_active_event(signal: dict[str, Any], live_event_score: int) -
     return live_event_score >= 8 or momentum >= 8
 
 
+def should_persist_active_event_for_scan(
+    signal: dict[str, Any],
+    *,
+    immediate_title: str,
+    immediate_key: str = "",
+) -> bool:
+    """Persist only selected post, crisis-tier material events, or genuine new developments."""
+    from xintelops.delivery.crisis_tier import POSTING_TIERS, classify_signal_tier
+
+    title = str(signal.get("title") or "")
+    key = signal.get("normalized_event_key") or normalize_event_key(title, str(signal.get("url") or ""))
+    if title == immediate_title or (immediate_key and key == immediate_key):
+        return True
+
+    material = bool(signal.get("new_information_detected"))
+    tier = classify_signal_tier(signal, material_change=material)
+    if tier in POSTING_TIERS and material:
+        return True
+    if material and str(signal.get("confidence") or "").upper() == "HIGH":
+        return True
+    return False
+
+
 def active_until_for_signal(signal: dict[str, Any], live_event_score: int, now: datetime | None = None) -> datetime:
     now = now or datetime.now(timezone.utc)
     if signal.get("crisis_flag") or live_event_score >= 10:
@@ -532,14 +561,31 @@ def merge_active_events(
 
         key = event.get("normalized_event_key") or normalize_event_key(str(event.get("title") or ""))
         if key in current_keys:
-            carry_log.append({**event, "carry_status": "updated", "carry_reason": "Re-detected in current scan."})
+            match = next(
+                (
+                    s
+                    for s in current_signals
+                    if (s.get("normalized_event_key") or normalize_event_key(str(s.get("title") or ""), str(s.get("url") or ""))) == key
+                ),
+                None,
+            )
+            material = bool(match and match.get("new_information_detected"))
+            carry_log.append(
+                {
+                    **event,
+                    "carry_status": "updated" if material else "cooling",
+                    "carry_reason": "Re-detected in current scan." if material else "Re-detected without new information.",
+                    "new_information_detected": material,
+                }
+            )
             continue
 
         event_copy = dict(event)
         event_copy["carry_status"] = "carried_forward"
         event_copy["carry_reason"] = "High-momentum event persisted from prior scan."
-        merged.append(active_event_to_signal(event_copy))
+        event_copy["new_information_detected"] = False
         carry_log.append(event_copy)
+        # Do not re-inject cooling carried events into ranked queue
 
     return merged, carry_log
 
@@ -592,30 +638,62 @@ def freshness_immediate_eligible(signal: dict[str, Any], has_stronger_live: bool
 
 def build_active_live_event_block(carry_log: list[dict[str, Any]], selected_title: str = "") -> dict[str, Any]:
     if not carry_log:
-        return {"events": [], "summary": "No active live events tracked this scan."}
+        return {"events": [], "summary": "No active live events tracked this scan.", "footer": ""}
+
+    visible = [ev for ev in carry_log if ev.get("carry_status") != "expired" and not ev.get("resolved")]
+    total = len(visible)
+    if not visible:
+        return {"events": [], "summary": "No active live events tracked this scan.", "footer": ""}
+
+    clustered = cluster_active_events(visible)
+    top = clustered[:MAX_ACTIVE_CLUSTERS]
+    truncated = total > MAX_ACTIVE_CLUSTERS
 
     events = []
-    for idx, ev in enumerate(carry_log, 1):
-        status = ev.get("carry_status") or ev.get("current_status") or "active"
-        if selected_title and ev.get("title") == selected_title and status == "carried_forward":
-            status = "carried_forward"
-        material = "yes" if status in {"updated", "carried_forward", "active"} else "no"
-        events.append(
-            {
-                "index": idx,
-                "title": ev.get("title", ""),
-                "status": status,
-                "active_until": ev.get("active_until", ""),
-                "last_seen": ev.get("last_seen_at") or ev.get("last_seen") or "",
-                "last_update": ev.get("latest_update_summary") or ev.get("carry_reason") or "",
-                "material_change": material,
-                "current_action": ev.get("previous_action") or "MONITOR",
-                "operator_decision": ev.get("previous_action") or "Monitor",
-                "reason": ev.get("carry_reason") or ev.get("latest_update_summary") or "",
-                "live_event_score": ev.get("live_event_score"),
-            }
+    for idx, cluster_lead in enumerate(top, 1):
+        carry_status = cluster_lead.get("carry_status") or cluster_lead.get("current_status") or "active"
+        status, material, operator_decision = assess_carry_status(
+            cluster_lead,
+            carry_status=carry_status,
+            selected_title=selected_title,
+            new_information_detected=bool(cluster_lead.get("new_information_detected")),
         )
-    return {"events": events, "summary": f"{len(events)} active live event(s) tracked."}
+        why = (
+            cluster_lead.get("latest_update_summary")
+            or cluster_lead.get("carry_reason")
+            or cluster_lead.get("reason")
+            or ""
+        )
+        why_line = str(why).split(";")[0].split(".")[0].strip()
+        if len(why_line) > 140:
+            why_line = why_line[:137] + "…"
+
+        entry = {
+            "index": idx,
+            "title": cluster_lead.get("title", ""),
+            "status": status,
+            "active_until": cluster_lead.get("active_until", ""),
+            "last_seen": cluster_lead.get("last_seen_at") or cluster_lead.get("last_seen") or "",
+            "last_update": why,
+            "material_change": "yes" if material else "no",
+            "current_action": cluster_lead.get("previous_action") or "MONITOR",
+            "operator_decision": operator_decision,
+            "reason": cluster_lead.get("carry_reason") or why,
+            "live_event_score": cluster_lead.get("live_event_score"),
+            "why_it_matters": why_line,
+        }
+        if cluster_lead.get("cluster_note"):
+            entry["cluster_note"] = cluster_lead["cluster_note"]
+        events.append(entry)
+
+    if truncated:
+        header = f"Showing top {len(top)} active clusters of {total} tracked."
+        footer = "Additional active events are cooling or archived. Not shown to keep the operator brief clean."
+    else:
+        header = f"Showing {len(top)} active cluster(s) of {total} tracked."
+        footer = ""
+
+    return {"events": events, "summary": header, "footer": footer, "header": header}
 
 
 def parse_pkt_scan_time(result: dict[str, Any]) -> datetime:

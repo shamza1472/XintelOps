@@ -18,6 +18,56 @@ _NUMBER_PREFIX = re.compile(
 )
 
 
+_MALFORMED_LABEL = re.compile(r"^[\s:+\-/]+$")
+_HAS_VERB = re.compile(r"\b(is|are|was|were|hit|struck|struck|says|said|reports|reported|confirms|may|could|adds|killed|injured|transit|struck|struck|launched|warns|announced)\b", re.I)
+
+
+def is_malformed_tweet(text: str) -> bool:
+    """Detect label fragments and non-publishable tweet text."""
+    t = strip_leading_number(str(text or "")).strip()
+    if not t:
+        return True
+    if t.startswith(":") or t.startswith(";"):
+        return True
+    if re.match(r"^[^\w]*$", t):
+        return True
+    lower = t.lower()
+    if "post now" in lower:
+        return True
+    if "xintelops angle" in lower:
+        return True
+    if len(t) < 20:
+        return True
+    if _MALFORMED_LABEL.match(t.replace(" ", "")):
+        return True
+    # keyword salad: mostly plus-separated fragments without verbs
+    if t.count("+") >= 2 and not _HAS_VERB.search(t):
+        return True
+    return False
+
+
+def validate_thread_tweets(tweets: list[str]) -> dict[str, Any]:
+    """Remove malformed tweets or block thread if too few valid tweets remain."""
+    valid: list[str] = []
+    removed: list[str] = []
+    for tweet in tweets:
+        if is_malformed_tweet(tweet):
+            removed.append(tweet)
+        else:
+            valid.append(tweet)
+    if removed and len(valid) >= 3:
+        return {"tweets": valid, "blocked": False, "block_reason": "", "removed": removed}
+    if removed:
+        idx = tweets.index(removed[0]) + 1 if removed else 0
+        return {
+            "tweets": [],
+            "blocked": True,
+            "block_reason": f"COPY BLOCKED — MALFORMED TWEET\nReason: Tweet {idx} is a label fragment, not publishable copy.",
+            "removed": removed,
+        }
+    return {"tweets": valid, "blocked": False, "block_reason": "", "removed": []}
+
+
 def parse_x_thread(raw: Any) -> list[str]:
     """Normalize x_thread to a list of tweet strings."""
     if raw is None:
@@ -105,6 +155,16 @@ def prepare_x_copy(result: dict[str, Any], action: str) -> dict[str, Any]:
                 "block_reason": "Operator action requires publishable X copy, but no X copy was available.",
                 "tweets": [],
             }
+        validation = validate_thread_tweets(tweets)
+        if validation["blocked"]:
+            return {
+                "copy_text": "",
+                "copy_type": "thread",
+                "blocked": True,
+                "block_reason": validation["block_reason"],
+                "tweets": [],
+            }
+        tweets = validation["tweets"]
         copy_text = format_thread_for_display(tweets, add_brand_footer=True)
         return {
             "copy_text": copy_text,
@@ -119,12 +179,12 @@ def prepare_x_copy(result: dict[str, Any], action: str) -> dict[str, Any]:
         tweets = parse_x_thread(result.get("x_thread"))
         if tweets:
             single = tweets[0]
-    if not single:
+    if not single or is_malformed_tweet(single):
         return {
             "copy_text": "",
             "copy_type": "single_post",
             "blocked": True,
-            "block_reason": "Operator action requires publishable X copy, but no X copy was available.",
+            "block_reason": "COPY BLOCKED — MALFORMED TWEET\nReason: Single post is a label fragment, not publishable copy.",
             "tweets": [],
         }
     return {

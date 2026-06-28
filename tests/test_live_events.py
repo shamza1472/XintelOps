@@ -90,8 +90,8 @@ class LiveEventAcceptanceTests(unittest.TestCase):
             }
         ]
         merged, carry = merge_active_events([_slow_burn_china()], active)
-        self.assertEqual(len(merged), 2)
-        self.assertTrue(any(s.get("carried_forward") for s in merged))
+        self.assertEqual(len(merged), 1)
+        self.assertFalse(any(s.get("carried_forward") for s in merged))
         self.assertEqual(carry[0]["carry_status"], "carried_forward")
 
     def test_d_slow_burn_cooldown(self):

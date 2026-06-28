@@ -64,7 +64,7 @@ def classify_scan_tier(result: dict[str, Any]) -> dict[str, Any]:
     tiers: list[str] = []
     tier_by_title: dict[str, str] = {}
     for sig in result.get("ranked_signals") or []:
-        material = sig.get("new_information_detected", True)
+        material = bool(sig.get("new_information_detected", False))
         if sig.get("carried_forward") and not material:
             material = False
         tier = classify_signal_tier(sig, material_change=bool(material))
@@ -78,14 +78,22 @@ def classify_scan_tier(result: dict[str, Any]) -> dict[str, Any]:
             scan_tier = t
             break
 
-    immediate_tier = tier_by_title.get(str(immediate_title or ""), scan_tier)
-    posting_exception = immediate_tier in POSTING_TIERS
+    immediate_tier = tier_by_title.get(str(immediate_title or ""), "ROUTINE")
+    immediate_sig = next(
+        (s for s in result.get("ranked_signals") or [] if str(s.get("title") or "") == str(immediate_title or "")),
+        {},
+    )
+    immediate_material = bool(immediate_sig.get("new_information_detected"))
+    if immediate_sig.get("carried_forward") and not immediate_material:
+        immediate_material = False
+    posting_exception = immediate_tier in POSTING_TIERS and immediate_material
 
     return {
         "scan_tier": scan_tier,
         "immediate_tier": immediate_tier,
         "posting_exception": posting_exception,
-        "crisis_detected": immediate_tier in POSTING_TIERS,
+        "crisis_detected": posting_exception,
+        "immediate_material_change": immediate_material,
         "tier_by_title": tier_by_title,
     }
 

@@ -15,19 +15,24 @@ def _render_active_live_events(active: dict[str, Any]) -> str:
     events = active.get("events") or []
     if not events:
         return f'<div class="op-line muted">{_esc(active.get("summary", "No active live events tracked this scan."))}</div>'
-    rows = []
+    rows = [f'<div class="op-line muted">{_esc(active.get("summary") or active.get("header", ""))}</div>']
     for ev in events:
-        idx = ev.get("index") or len(rows) + 1
+        idx = ev.get("index") or len(rows)
+        cluster = f'<div class="op-line"><span class="op-key">{_esc(ev.get("cluster_note"))}</span></div>' if ev.get("cluster_note") else ""
         rows.append(
             f"""
             <div class="op-line"><strong>{idx}. {_esc(ev.get('title'))}</strong></div>
             <div class="op-line"><span class="op-key">Status:</span> {_esc(ev.get('status'))}</div>
-            <div class="op-line"><span class="op-key">Last seen:</span> {_esc(ev.get('last_seen') or ev.get('last_update'))}</div>
             <div class="op-line"><span class="op-key">Material change:</span> {_esc(ev.get('material_change', 'unknown'))}</div>
             <div class="op-line"><span class="op-key">Operator decision:</span> {_esc(ev.get('operator_decision') or ev.get('current_action'))}</div>
+            {cluster}
+            <div class="op-line"><span class="op-key">Last seen:</span> {_esc(ev.get('last_seen') or ev.get('last_update'))}</div>
+            <div class="op-line"><span class="op-key">Why it matters:</span> {_esc(ev.get('why_it_matters') or ev.get('reason'))}</div>
             """
         )
-    return f'<div class="op-line muted">{_esc(active.get("summary"))}</div>' + "".join(rows)
+    if active.get("footer"):
+        rows.append(f'<div class="op-line muted">{_esc(active.get("footer"))}</div>')
+    return "".join(rows)
 
 
 def _render_x_post_section(x: dict[str, Any]) -> str:
@@ -167,8 +172,8 @@ def build_email_html(result: dict[str, Any]) -> str:
     top_display = block.get("top_signals") or result.get("top_signals_display") or {}
 
     tier_meta = result.get("crisis_tier_meta") or {}
-    scan_tier = tier_meta.get("scan_tier") or result.get("scan_tier") or "ROUTINE"
-    crisis_header = scan_tier in {"CRISIS", "FLASHPOINT"}
+    scan_tier = tier_meta.get("immediate_tier") or tier_meta.get("scan_tier") or result.get("scan_tier") or "ROUTINE"
+    crisis_header = bool(tier_meta.get("crisis_detected"))
 
     show_linkedin = li_block.get("copy_this") and li_block.get("status") in {
         "Post now", "Crisis exception", "Scheduled today", "In scheduled window"

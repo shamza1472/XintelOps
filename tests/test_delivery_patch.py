@@ -57,10 +57,10 @@ def _thread_signal(title: str = "PLA Fujian carrier transit") -> dict:
 class TestXCopyInOperatorBlock(unittest.TestCase):
     def test_x_thread_renders_copy_inside_operator_block(self):
         thread = [
-            "PLA Fujian transited the Taiwan Strait during drills.",
-            "The transit adds maritime pressure but does not prove escalation.",
-            "Watch insurance and routing signals in the next scan window.",
-            "Corridor risk remains elevated while drills continue.",
+            "PLA Fujian transited the Taiwan Strait during drills according to regional reporting.",
+            "The transit adds maritime pressure but does not prove escalation preparation.",
+            "Watch insurance and routing signals in the next scan window for changes.",
+            "Corridor risk remains elevated while drills continue near the strait.",
         ]
         result = _base_result(
             x_thread=thread,
@@ -293,7 +293,12 @@ class TestEditorialAndBrand(unittest.TestCase):
 
 class TestEmailIntegration(unittest.TestCase):
     def test_email_shows_copy_source_roles_and_max_ten_signals(self):
-        thread = ["Iran corridor signal one.", "Insurance repricing may follow.", "Watch routing next.", "Fourth tweet."]
+        thread = [
+            "Iran corridor signal one with verified source detail from the strait.",
+            "Insurance repricing may follow if transit delays widen near Hormuz.",
+            "Watch routing and Gulf basing posture in the next scan window.",
+            "Fourth tweet adds consequence detail for operator monitoring only.",
+        ]
         titles = [
             "PLA Fujian carrier transit through Taiwan Strait",
             "India-UAE BrahMos procurement talks advance",
@@ -318,6 +323,7 @@ class TestEmailIntegration(unittest.TestCase):
             for i, title in enumerate(titles)
         ]
         primary = signals[0]
+        primary["new_information_detected"] = True
         result = _base_result(
             x_thread=thread,
             ranked_signals=signals,

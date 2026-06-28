@@ -6,7 +6,8 @@ from xintelops.delivery.live_events import (
     build_active_live_event_block,
     classify_freshness,
     merge_active_events,
-    should_persist_active_event,
+    normalize_event_key,
+    should_persist_active_event_for_scan,
     signal_to_active_event,
 )
 from xintelops.delivery.ranking import (
@@ -235,12 +236,18 @@ def enrich_operator_result(
         s.get("crisis_flag") for s in normalized
     )
 
-    # Queue events for persistence after finalize
+    # Queue events for persistence after finalize (selected + material only)
     pending_events = []
     scan_session = str(result.get("scan_session") or "")
+    immediate_key = immediate.get("normalized_event_key") or normalize_event_key(
+        str(immediate.get("title") or ""), str(immediate.get("url") or "")
+    )
     for sig in normalized:
-        score = int(sig.get("live_event_score") or 0)
-        if should_persist_active_event(sig, score):
+        if should_persist_active_event_for_scan(
+            sig,
+            immediate_title=str(immediate.get("title") or ""),
+            immediate_key=immediate_key,
+        ):
             pending_events.append(signal_to_active_event(sig, scan_session))
     result["_pending_active_events"] = pending_events
     result["_immediate_recommendation"] = {

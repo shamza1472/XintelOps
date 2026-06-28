@@ -25,24 +25,39 @@ def classify_source_role(
     primary_title: str,
     cross_roles: list[dict[str, Any]] | None = None,
     secondary_titles: set[str] | None = None,
+    selected_signal_url: str = "",
+    package_index: int = 0,
+    in_primary_package: bool = False,
 ) -> str:
     cross_roles = cross_roles or []
     secondary_titles = secondary_titles or set()
     url = str(source.get("url") or "").lower()
-    why = str(source.get("why_supports") or "").lower()
+    why = str(source.get("why_supports") or source.get("used_for") or "").lower()
     name = str(source.get("name") or "").lower()
+    selected_url = str(selected_signal_url or "").lower().split("?")[0]
+
+    if source.get("source_role") == ROLE_PRIMARY:
+        return ROLE_PRIMARY
+    if in_primary_package and package_index == 0:
+        return ROLE_PRIMARY
+    if selected_url and url and url.split("?")[0] == selected_url:
+        return ROLE_PRIMARY
 
     for role_entry in cross_roles:
         role_title = str(role_entry.get("title") or "")
         role = role_entry.get("role") or ROLE_BACKGROUND
         pkg = role_entry.get("source_package") or []
-        pkg_urls = {str(p.get("url") or "").lower() for p in pkg if isinstance(p, dict)}
-        if url and url in pkg_urls:
+        pkg_urls = {str(p.get("url") or "").lower().split("?")[0] for p in pkg if isinstance(p, dict)}
+        if url and url.split("?")[0] in pkg_urls:
             return role
         if role_title and _title_key(role_title) in why:
             return role
 
     if primary_title and _title_key(primary_title) in why:
+        return ROLE_PRIMARY
+    if in_primary_package and any(
+        w in why for w in ("confirms", "reports", "strike", "attack", "escalation", "official", "statement", "centcom")
+    ):
         return ROLE_PRIMARY
     if any(_title_key(t) in why or _title_key(t) in name for t in secondary_titles):
         return ROLE_SECONDARY
@@ -57,6 +72,7 @@ def partition_sources_by_role(
     primary_title: str,
     cross_roles: list[dict[str, Any]] | None = None,
     secondary_titles: set[str] | None = None,
+    selected_signal_url: str = "",
 ) -> dict[str, list[dict[str, Any]]]:
     buckets: dict[str, list[dict[str, Any]]] = {
         ROLE_PRIMARY: [],
@@ -65,7 +81,7 @@ def partition_sources_by_role(
         ROLE_WATCHLIST: [],
     }
     seen_urls: set[str] = set()
-    for src in sources:
+    for idx, src in enumerate(sources):
         url = str(src.get("url") or "")
         if url and url in seen_urls:
             continue
@@ -76,6 +92,9 @@ def partition_sources_by_role(
             primary_title=primary_title,
             cross_roles=cross_roles,
             secondary_titles=secondary_titles,
+            selected_signal_url=selected_signal_url,
+            package_index=idx,
+            in_primary_package=True,
         )
         entry = {**src, "source_role": role, "used_for": src.get("used_for") or src.get("why_supports") or ""}
         buckets.setdefault(role, []).append(entry)
@@ -108,11 +127,14 @@ def build_role_separated_package(
     from xintelops.delivery.queue import build_source_package
 
     raw = build_source_package(result, primary_title)
+    selected = next((s for s in result.get("ranked_signals") or [] if s.get("title") == primary_title), None)
+    selected_url = str((selected or {}).get("url") or "")
     return partition_sources_by_role(
         raw,
         primary_title=primary_title,
         cross_roles=result.get("cross_event_roles") or [],
         secondary_titles=secondary_titles,
+        selected_signal_url=selected_url,
     )
 
 

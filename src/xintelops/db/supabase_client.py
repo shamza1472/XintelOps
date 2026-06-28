@@ -10,6 +10,7 @@ from supabase import Client, create_client
 
 from xintelops.config import Settings, get_settings
 from xintelops.delivery.linkedin_synthesis import build_linkedin_block
+from xintelops.delivery.active_event_clusters import same_event_cluster
 from xintelops.delivery.live_events import normalize_event_key
 from xintelops.delivery.queue import resolve_queue
 
@@ -145,7 +146,7 @@ class SupabaseClient:
                 .eq("resolved", False)
                 .gte("active_until", now)
                 .order("live_event_score", desc=True)
-                .limit(20)
+                .limit(100)
                 .execute()
             )
             return result.data or []
@@ -168,7 +169,51 @@ class SupabaseClient:
         except Exception:
             return []
 
+    def resolve_expired_active_events(self) -> int:
+        """Mark expired active events as resolved."""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            expired = (
+                self._require_client()
+                .table("active_live_events")
+                .select("id")
+                .eq("resolved", False)
+                .lt("active_until", now)
+                .execute()
+            )
+            ids = [row["id"] for row in (expired.data or [])]
+            if not ids:
+                return 0
+            for row_id in ids:
+                self._require_client().table("active_live_events").update(
+                    {"resolved": True, "current_status": "resolved", "updated_at": now}
+                ).eq("id", row_id).execute()
+            return len(ids)
+        except Exception:
+            return 0
+
+    def _find_similar_active_row(self, client, event: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            rows = (
+                client.table("active_live_events")
+                .select("*")
+                .eq("resolved", False)
+                .gte("active_until", now)
+                .limit(100)
+                .execute()
+            ).data or []
+        except Exception:
+            return None
+        for row in rows:
+            if row.get("normalized_event_key") == event.get("normalized_event_key"):
+                return row
+            if same_event_cluster(row, event):
+                return row
+        return None
+
     def persist_live_events(self, result: dict[str, Any]) -> None:
+        self.resolve_expired_active_events()
         pending = result.get("_pending_active_events") or []
         if not pending:
             return
@@ -178,17 +223,21 @@ class SupabaseClient:
             key = event.get("normalized_event_key")
             if not key:
                 continue
+            material = bool(event.get("material_change") or event.get("new_information_detected"))
+            status = "updated" if material else "cooling"
             try:
                 existing = (
                     client.table("active_live_events")
-                    .select("id, times_recommended, first_detected_at")
+                    .select("id")
                     .eq("normalized_event_key", key)
+                    .eq("resolved", False)
                     .limit(1)
                     .execute()
                 )
                 rows = existing.data or []
-                if rows:
-                    row = rows[0]
+                target = rows[0] if rows else self._find_similar_active_row(client, event)
+
+                if target:
                     client.table("active_live_events").update(
                         {
                             "last_seen_at": now,
@@ -197,13 +246,16 @@ class SupabaseClient:
                             "momentum_score": event.get("momentum_score"),
                             "crisis_flag": event.get("crisis_flag"),
                             "latest_update_summary": event.get("latest_update_summary"),
-                            "current_status": "active",
+                            "current_status": status,
                             "scan_session": event.get("scan_session"),
                             "freshness_class": event.get("freshness_class"),
                             "updated_at": now,
+                            "title": event.get("title") or target.get("title"),
+                            "normalized_event_key": key,
                         }
-                    ).eq("id", row["id"]).execute()
+                    ).eq("id", target["id"]).execute()
                 else:
+                    event["current_status"] = "active"
                     client.table("active_live_events").insert(event).execute()
             except Exception:
                 continue
