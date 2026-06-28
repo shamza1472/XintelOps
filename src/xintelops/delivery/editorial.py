@@ -9,6 +9,8 @@ SLOP_REWRITES: tuple[tuple[str, str], ...] = (
     ("xintelops angle", "The relevant linkage is"),
     ("most feeds skip", "Secondary risk"),
     ("not a headline cycle", "not a standalone event"),
+    ("not a standalone event . it's", "The issue is"),
+    ("not a standalone event. it's", "The issue is"),
     ("chokepoint crisis", "chokepoint pressure"),
     ("watch next 12h", "Watch next scan window"),
     ("operators should watch", "Worth monitoring"),
@@ -265,4 +267,272 @@ def editorial_pipeline(
         "block_reason": reason,
         "scores": scores,
         "claims": hall["claims"],
+    }
+
+
+# --- Final copy-paste safety pass (public X copy only) ---
+
+FINAL_COPY_REWRITES: tuple[tuple[str, str], ...] = (
+    ("this isn't a headline cycle — it's", "The issue is"),
+    ("this isn't a headline cycle — it is", "The issue is"),
+    ("this isn't a headline cycle", "not a standalone event"),
+    ("this is not a headline cycle", "not a standalone event"),
+    ("what most analysts miss:", ""),
+    ("what most analysts miss", ""),
+    ("what most feeds miss", ""),
+    ("most feeds skip", "Secondary risk"),
+    ("second-order watch", "Secondary risk"),
+    ("bottom line:", ""),
+    ("live event priority mode", ""),
+    ("post primary thread", ""),
+    ("post now", ""),
+    ("translation —", ""),
+    ("translation:", ""),
+    ("for operators:", ""),
+    ("for operators", ""),
+    ("for tracking", ""),
+    ("operators should watch", "Worth monitoring"),
+    ("chokepoint crisis", "chokepoint pressure"),
+    ("chokepoint math", "transit cost"),
+    ("insurance math", "insurance cost"),
+    ("before headlines catch up", "before broader coverage"),
+    ("dominates analyst feeds", "is drawing analyst attention"),
+    ("generic headline noise", "routine headline coverage"),
+    ("xintelops angle", "The relevant linkage is"),
+    ("xintelops tracks", ""),
+    ("your audience", "readers"),
+)
+
+FINAL_BANNED_PHRASES = (
+    "this isn't a headline cycle",
+    "this is not a headline cycle",
+    "headline cycle",
+    "what most analysts miss",
+    "what most feeds miss",
+    "most feeds skip",
+    "operators should watch",
+    "for operators",
+    "for tracking",
+    "second-order watch",
+    "bottom line:",
+    "live event priority mode",
+    "post primary thread",
+    "post now",
+    "translation —",
+    "translation:",
+    "chokepoint crisis",
+    "chokepoint math",
+    "insurance math",
+    "before headlines catch up",
+    "dominates analyst feeds",
+    "generic headline noise",
+    "xintelops angle",
+    "xintelops tracks",
+    "your audience",
+    "delve",
+    "landscape",
+    "leverage",
+    "utilize",
+    "robust",
+    "comprehensive",
+    "game-changer",
+    "game changer",
+    "unlock",
+    "transform",
+    "powerful",
+    "crucial",
+    "in today's world",
+    "at the end of the day",
+    "it's not ",
+    "it is not ",
+    "this isn't just",
+    "this is not just",
+    "unlike others",
+    "the key is",
+    "what matters is",
+    "here's why",
+    "lets unpack",
+    "let's unpack",
+    "deep dive",
+    "signal from noise",
+    "signal over noise",
+)
+
+FINAL_INTERNAL_LABELS = (
+    "action:",
+    "format:",
+    "deadline:",
+    "expires:",
+    "tier:",
+    "layer:",
+    "monitor only",
+    "post primary thread",
+    "source role:",
+    "live event priority mode",
+)
+
+_FORMULAIC_LABEL_PREFIX = re.compile(
+    r"^\s*(?:why it matters|bottom line|what most analysts miss|for operators|translation|what to watch)\s*:\s*",
+    re.IGNORECASE,
+)
+
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F1E0-\U0001F1FF"
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _replace_em_dashes(text: str) -> str:
+    out = text.replace("\u2014", ". ").replace(" — ", ". ").replace("—", ". ")
+    out = re.sub(r"\.\s+\.", ".", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    return out.strip()
+
+
+def _apply_final_rewrites(text: str) -> str:
+    out = text
+    for old, new in sorted(FINAL_COPY_REWRITES, key=lambda x: -len(x[0])):
+        out = re.sub(re.escape(old), new, out, flags=re.IGNORECASE)
+    return out
+
+
+def _contains_banned_phrase(text: str) -> str | None:
+    lower = text.lower()
+    for phrase in FINAL_BANNED_PHRASES:
+        if phrase in lower:
+            return phrase
+    return None
+
+
+def _contains_internal_label(text: str) -> str | None:
+    lower = text.lower()
+    for label in FINAL_INTERNAL_LABELS:
+        if label in lower:
+            return label
+    return None
+
+
+def _strip_formulaic_labels(text: str) -> str:
+    out = _FORMULAIC_LABEL_PREFIX.sub("", text)
+    out = re.sub(r"^\s*\d+\)\s*", "", out)
+    return out.strip()
+
+
+def _cleanup_orphan_punctuation(text: str) -> str:
+    out = re.sub(r"\s*\.\s*,\s*", ". ", text)
+    out = re.sub(r"^\s*[.,:;]+\s*", "", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    return out.strip()
+
+
+def _is_broken_after_cleaning(text: str) -> bool:
+    t = text.strip()
+    words = re.findall(r"\b[a-z]{2,}\b", t.lower())
+    if len(words) < 4:
+        return True
+    if len(t) < 20:
+        return True
+    if re.match(r"^[\s.,:;!?]+", t):
+        return True
+    return False
+
+
+def final_anti_ai_slop_pass(text: str, *, max_len: int = 280) -> dict[str, Any]:
+    """
+    Final copy-paste safety pass on rendered public X tweet text.
+    Runs after slop, hallucination, parsing, numbering, and brand footer insertion.
+    """
+    from xintelops.delivery.x_copy import THREAD_BRAND_FOOTER, fit_tweet_length, is_truncated_tweet
+
+    raw = str(text or "").strip()
+    if not raw:
+        return {
+            "text": "",
+            "blocked": True,
+            "block_reason": "Tweet is empty after final copy pass.",
+            "issues": ["empty"],
+        }
+
+    issues: list[str] = []
+    cleaned = _replace_em_dashes(raw)
+    cleaned = _apply_final_rewrites(cleaned)
+    cleaned = _strip_formulaic_labels(cleaned)
+    cleaned = re.sub(r"^\s*translation\s*\.?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = _EMOJI_PATTERN.sub("", cleaned)
+    cleaned = re.sub(r"#\w+", "", cleaned)
+    cleaned = _cleanup_orphan_punctuation(cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+
+    banned = _contains_banned_phrase(cleaned)
+    if banned:
+        cleaned = re.sub(re.escape(banned), "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        banned = _contains_banned_phrase(cleaned)
+
+    internal = _contains_internal_label(cleaned)
+    if internal:
+        cleaned = re.sub(re.escape(internal), "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        internal = _contains_internal_label(cleaned)
+
+    if "\u2014" in cleaned or "—" in cleaned:
+        cleaned = _replace_em_dashes(cleaned)
+        issues.append("em_dash")
+
+    body_for_truncation = cleaned.replace(THREAD_BRAND_FOOTER, "").strip()
+
+    if is_truncated_tweet(body_for_truncation) and len(cleaned) <= max_len:
+        return {
+            "text": cleaned,
+            "blocked": True,
+            "block_reason": "Tweet ends with truncated or incomplete text.",
+            "issues": issues + ["truncated"],
+        }
+
+    if len(cleaned) > max_len:
+        cleaned = fit_tweet_length(cleaned, max_len=max_len)
+        body_for_truncation = cleaned.replace(THREAD_BRAND_FOOTER, "").strip()
+
+    if is_truncated_tweet(body_for_truncation):
+        return {
+            "text": cleaned,
+            "blocked": True,
+            "block_reason": "Tweet ends with truncated or incomplete text.",
+            "issues": issues + ["truncated"],
+        }
+
+    banned = _contains_banned_phrase(cleaned)
+    internal = _contains_internal_label(cleaned)
+    blocked = bool(banned or internal)
+    reason = ""
+    if banned:
+        reason = f"Banned phrase remains: {banned}"
+    elif internal:
+        reason = f"Internal operator label remains: {internal}"
+    elif re.search(r"#\w+", cleaned):
+        blocked = True
+        reason = "Hashtag in public copy."
+    elif _EMOJI_PATTERN.search(cleaned):
+        blocked = True
+        reason = "Emoji in public copy."
+
+    if not cleaned.strip():
+        blocked = True
+        reason = reason or "Tweet is empty after final copy pass."
+    elif _is_broken_after_cleaning(cleaned):
+        blocked = True
+        reason = reason or "Tweet is a broken fragment after final copy pass."
+
+    return {
+        "text": cleaned,
+        "blocked": blocked,
+        "block_reason": reason,
+        "issues": issues,
     }

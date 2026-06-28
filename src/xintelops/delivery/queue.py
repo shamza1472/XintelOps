@@ -7,7 +7,13 @@ from typing import Any
 from xintelops.delivery.editorial import editorial_pipeline
 from xintelops.delivery.ranking import compute_rank_score
 from xintelops.delivery.source_roles import build_role_separated_package
-from xintelops.delivery.x_copy import apply_x_copy_to_result, format_thread_for_display, prepare_x_copy
+from xintelops.delivery.x_copy import (
+    apply_brand_footer_to_tweets,
+    apply_final_copy_safety_gate,
+    apply_x_copy_to_result,
+    format_thread_for_display,
+    prepare_x_copy,
+)
 
 PKT = timezone(timedelta(hours=5))
 LATER_WINDOW_HOURS = 4
@@ -53,19 +59,33 @@ def _format_draft(result: dict[str, Any], action: str) -> str:
                 result["_x_copy_meta"] = {**meta, "blocked": True, "block_reason": edited.get("block_reason")}
                 return ""
             edited_tweets.append(edited["text"])
-        result["x_thread"] = edited_tweets
+        tweets_with_footer = apply_brand_footer_to_tweets(edited_tweets)
+        final_gate = apply_final_copy_safety_gate(tweets_with_footer)
+        if final_gate["blocked"]:
+            result["_x_copy_meta"] = {
+                **meta,
+                "blocked": True,
+                "block_reason": final_gate["block_reason"],
+            }
+            return ""
+        final_tweets = final_gate["tweets"]
+        result["x_thread"] = final_tweets
         result["_editorial_scores"] = edited.get("scores") if edited_tweets else {}
         result["_claim_map"] = edited.get("claims") if edited_tweets else []
-        return format_thread_for_display(edited_tweets, add_brand_footer=True)
+        return format_thread_for_display(final_tweets, add_brand_footer=False)
 
     edited = editorial_pipeline(copy_text, flat_sources, primary_title=primary_title)
     if edited.get("blocked"):
         result["_x_copy_meta"] = {**meta, "blocked": True, "block_reason": edited.get("block_reason")}
         return ""
-    result["x_post"] = edited["text"]
+    final_gate = apply_final_copy_safety_gate([edited["text"]])
+    if final_gate["blocked"]:
+        result["_x_copy_meta"] = {**meta, "blocked": True, "block_reason": final_gate["block_reason"]}
+        return ""
+    result["x_post"] = final_gate["tweets"][0]
     result["_editorial_scores"] = edited.get("scores")
     result["_claim_map"] = edited.get("claims")
-    return edited["text"]
+    return final_gate["tweets"][0]
 
 
 def _format_label(action: str) -> str:

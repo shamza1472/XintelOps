@@ -21,6 +21,45 @@ _NUMBER_PREFIX = re.compile(
 _MALFORMED_LABEL = re.compile(r"^[\s:+\-/]+$")
 _HAS_VERB = re.compile(r"\b(is|are|was|were|hit|struck|struck|says|said|reports|reported|confirms|may|could|adds|killed|injured|transit|struck|struck|launched|warns|announced)\b", re.I)
 
+_TRUNCATION_ENDINGS = frozenset(
+    {"of", "to", "with", "by", "for", "and", "or", "vi", "the", "a", "an", "in", "at", "on", "as", "is", "it"}
+)
+
+
+def fit_tweet_length(text: str, max_len: int = MAX_TWEET_LEN) -> str:
+    """Shorten at word boundary; never cut mid-word."""
+    t = str(text or "").strip()
+    if len(t) <= max_len:
+        return t
+    cut = t[:max_len]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    cut = cut.rstrip(",;:- ")
+    if cut and not re.search(r'[.!?…"\']$', cut):
+        cut += "."
+    return cut
+
+
+def is_truncated_tweet(text: str) -> bool:
+    """Detect partial words, unfinished phrases, and limit-slice truncation."""
+    t = str(text or "").strip()
+    if not t:
+        return True
+    if t.count("(") != t.count(")"):
+        return True
+    tokens = re.findall(r"\b[\w']+\b", t)
+    if not tokens:
+        return True
+    last = tokens[-1].lower()
+    if last in _TRUNCATION_ENDINGS:
+        return True
+    if len(last) <= 3 and not re.search(r'[.!?…"\']$', t):
+        return True
+    if len(t) > 30 and not re.search(r'[.!?…"\']$', t):
+        if last in _TRUNCATION_ENDINGS:
+            return True
+    return False
+
 
 def is_malformed_tweet(text: str) -> bool:
     """Detect label fragments and non-publishable tweet text."""
@@ -97,7 +136,7 @@ def parse_x_thread(raw: Any) -> list[str]:
         t = _NUMBER_PREFIX.sub("", t).strip()
         t = t.replace("🧵", "").strip()
         if t:
-            tweets.append(t[:MAX_TWEET_LEN])
+            tweets.append(fit_tweet_length(t))
     return tweets
 
 
@@ -123,7 +162,88 @@ def format_thread_for_display(tweets: list[str], *, add_brand_footer: bool = Tru
 
 def format_single_post(text: str) -> str:
     cleaned = strip_leading_number(str(text or "").strip())
-    return cleaned[:MAX_TWEET_LEN]
+    return fit_tweet_length(cleaned)
+
+
+def apply_brand_footer_to_tweets(tweets: list[str]) -> list[str]:
+    """Attach brand footer once to the final tweet in the thread."""
+    if not tweets:
+        return []
+    out = list(tweets)
+    footer = THREAD_BRAND_FOOTER
+    last = out[-1]
+    if footer in last:
+        return out
+    if is_truncated_tweet(last):
+        out.append(footer)
+        return out
+    if len(last) + len(footer) + 3 <= MAX_TWEET_LEN:
+        out[-1] = f"{last}\n\n{footer}"
+    else:
+        out.append(footer)
+    return out
+
+
+def apply_final_copy_safety_gate(tweets: list[str]) -> dict[str, Any]:
+    """
+    Final copy-paste safety gate on rendered tweet texts (after footer insertion).
+    Rewrites when possible; removes failing tweets if thread stays >= 3; else blocks.
+    """
+    from xintelops.delivery.editorial import final_anti_ai_slop_pass
+
+    if not tweets:
+        return {
+            "tweets": [],
+            "blocked": True,
+            "block_reason": "COPY BLOCKED — FINAL COPY QUALITY FAIL\nReason: No tweets to publish.",
+            "removed": [],
+        }
+
+    processed: list[str] = []
+    removed: list[dict[str, Any]] = []
+
+    for idx, tweet in enumerate(tweets, 1):
+        result = final_anti_ai_slop_pass(tweet)
+        if result["blocked"]:
+            removed.append({"index": idx, "tweet": tweet, "reason": result.get("block_reason") or "quality fail"})
+            continue
+        if result["text"].strip():
+            processed.append(result["text"])
+
+    if removed and len(processed) >= 3:
+        if any("truncated" in str(r.get("reason") or "").lower() for r in removed):
+            first = removed[0]
+            return {
+                "tweets": [],
+                "blocked": True,
+                "block_reason": (
+                    f"COPY BLOCKED — FINAL COPY QUALITY FAIL\n"
+                    f"Reason: Tweet {first['index']}: {first.get('reason') or 'truncated text'}"
+                ),
+                "removed": removed,
+            }
+        return {"tweets": processed, "blocked": False, "block_reason": "", "removed": removed}
+
+    if removed:
+        first = removed[0]
+        reason = first.get("reason") or "Tweet failed final copy quality check."
+        return {
+            "tweets": [],
+            "blocked": True,
+            "block_reason": f"COPY BLOCKED — FINAL COPY QUALITY FAIL\nReason: Tweet {first['index']}: {reason}",
+            "removed": removed,
+        }
+
+    footer_count = sum(1 for t in processed if THREAD_BRAND_FOOTER in t)
+    if footer_count > 1:
+        return {
+            "tweets": [],
+            "blocked": True,
+            "block_reason": "COPY BLOCKED — FINAL COPY QUALITY FAIL\nReason: Brand footer appears more than once.",
+            "removed": [],
+        }
+
+    return {"tweets": processed, "blocked": False, "block_reason": "", "removed": []}
 
 
 def prepare_x_copy(result: dict[str, Any], action: str) -> dict[str, Any]:
