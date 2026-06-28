@@ -166,7 +166,9 @@ def format_single_post(text: str) -> str:
 
 
 def apply_brand_footer_to_tweets(tweets: list[str]) -> list[str]:
-    """Attach brand footer once to the final tweet in the thread."""
+    """Attach brand footer once to the final tweet when it reads naturally."""
+    from xintelops.delivery.editorial import audit_final_copy_violations
+
     if not tweets:
         return []
     out = list(tweets)
@@ -175,21 +177,22 @@ def apply_brand_footer_to_tweets(tweets: list[str]) -> list[str]:
     if footer in last:
         return out
     if is_truncated_tweet(last):
-        out.append(footer)
         return out
-    if len(last) + len(footer) + 3 <= MAX_TWEET_LEN:
-        out[-1] = f"{last}\n\n{footer}"
-    else:
-        out.append(footer)
+    if audit_final_copy_violations(last):
+        return out
+    if len(last) > 220 or last.count(".") >= 3:
+        return out
+    combined = f"{last}\n\n{footer}"
+    if len(combined) <= MAX_TWEET_LEN:
+        out[-1] = combined
     return out
 
 
 def apply_final_copy_safety_gate(tweets: list[str]) -> dict[str, Any]:
     """
-    Final copy-paste safety gate on rendered tweet texts (after footer insertion).
-    Rewrites when possible; removes failing tweets if thread stays >= 3; else blocks.
+    Fail-closed final gate: block entire thread if any tweet fails validation.
     """
-    from xintelops.delivery.editorial import final_anti_ai_slop_pass
+    from xintelops.delivery.editorial import audit_final_copy_violations, final_anti_ai_slop_pass
 
     if not tweets:
         return {
@@ -200,39 +203,28 @@ def apply_final_copy_safety_gate(tweets: list[str]) -> dict[str, Any]:
         }
 
     processed: list[str] = []
-    removed: list[dict[str, Any]] = []
 
     for idx, tweet in enumerate(tweets, 1):
         result = final_anti_ai_slop_pass(tweet)
         if result["blocked"]:
-            removed.append({"index": idx, "tweet": tweet, "reason": result.get("block_reason") or "quality fail"})
-            continue
-        if result["text"].strip():
-            processed.append(result["text"])
-
-    if removed and len(processed) >= 3:
-        if any("truncated" in str(r.get("reason") or "").lower() for r in removed):
-            first = removed[0]
+            reason = result.get("block_reason") or "Tweet failed final copy quality check."
             return {
                 "tweets": [],
                 "blocked": True,
-                "block_reason": (
-                    f"COPY BLOCKED — FINAL COPY QUALITY FAIL\n"
-                    f"Reason: Tweet {first['index']}: {first.get('reason') or 'truncated text'}"
-                ),
-                "removed": removed,
+                "block_reason": f"COPY BLOCKED — FINAL COPY QUALITY FAIL\nReason: Tweet {idx}: {reason}",
+                "removed": [{"index": idx, "tweet": tweet, "reason": reason}],
             }
-        return {"tweets": processed, "blocked": False, "block_reason": "", "removed": removed}
-
-    if removed:
-        first = removed[0]
-        reason = first.get("reason") or "Tweet failed final copy quality check."
-        return {
-            "tweets": [],
-            "blocked": True,
-            "block_reason": f"COPY BLOCKED — FINAL COPY QUALITY FAIL\nReason: Tweet {first['index']}: {reason}",
-            "removed": removed,
-        }
+        final_text = result["text"].strip()
+        remaining = audit_final_copy_violations(final_text)
+        if remaining:
+            reason = remaining[0]
+            return {
+                "tweets": [],
+                "blocked": True,
+                "block_reason": f"COPY BLOCKED — FINAL COPY QUALITY FAIL\nReason: Tweet {idx}: {reason}",
+                "removed": [{"index": idx, "tweet": tweet, "reason": reason}],
+            }
+        processed.append(final_text)
 
     footer_count = sum(1 for t in processed if THREAD_BRAND_FOOTER in t)
     if footer_count > 1:

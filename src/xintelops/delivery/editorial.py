@@ -275,12 +275,21 @@ def editorial_pipeline(
 FINAL_COPY_REWRITES: tuple[tuple[str, str], ...] = (
     ("this isn't a headline cycle — it's", "The issue is"),
     ("this isn't a headline cycle — it is", "The issue is"),
-    ("this isn't a headline cycle", "not a standalone event"),
-    ("this is not a headline cycle", "not a standalone event"),
+    ("this isn't a headline cycle", "The issue is transit enforcement"),
+    ("this is not a headline cycle", "The issue is transit enforcement"),
+    ("the under-covered this isn't a bilateral", "This is not only a bilateral"),
+    ("the under-covered this is not a bilateral", "This is not only a bilateral"),
+    ("under-covered this isn't", "This is not only"),
+    ("watch next:", "Worth tracking:"),
     ("what most analysts miss:", ""),
     ("what most analysts miss", ""),
+    ("what most people miss:", ""),
+    ("what most people miss", ""),
     ("what most feeds miss", ""),
-    ("most feeds skip", "Secondary risk"),
+    ("most feeds skip", ""),
+    ("most accounts miss", ""),
+    ("if you're only counting sorties, you're late.", "Sorties alone understate corridor risk."),
+    ("if you're only", "If the focus is only"),
     ("second-order watch", "Secondary risk"),
     ("bottom line:", ""),
     ("live event priority mode", ""),
@@ -297,19 +306,50 @@ FINAL_COPY_REWRITES: tuple[tuple[str, str], ...] = (
     ("insurance math", "insurance cost"),
     ("before headlines catch up", "before broader coverage"),
     ("dominates analyst feeds", "is drawing analyst attention"),
+    ("dominates feeds", "is drawing attention"),
     ("generic headline noise", "routine headline coverage"),
     ("xintelops angle", "The relevant linkage is"),
     ("xintelops tracks", ""),
     ("your audience", "readers"),
+    ("chokepoints + energy flows + multi-actor diplomacy", "Chokepoints, energy flows, and multi-actor diplomacy"),
+    ("chokepoints + energy flows", "Chokepoints and energy flows"),
+    ("energy flows +", "energy flows and"),
 )
 
 FINAL_BANNED_PHRASES = (
     "this isn't a headline cycle",
     "this is not a headline cycle",
     "headline cycle",
+    "this isn't",
+    "this is not",
+    "isn't a headline cycle",
+    "under-covered",
+    "the under-covered",
+    "not a bilateral",
+    "scrap",
+    "watch next",
+    "if you're only",
+    "you're late",
+    "markets hear",
+    "insurers hear guns",
+    "chokepoint story",
+    "kinetic again",
+    "chokepoints +",
+    "energy flows +",
+    "multi-actor diplomacy",
+    "under fire",
+    "the signal",
+    "lots of paper",
+    "easy re-escalation",
+    "most accounts",
+    "analyst feeds",
+    "dominates feeds",
+    "priced faster than",
     "what most analysts miss",
+    "what most people miss",
     "what most feeds miss",
     "most feeds skip",
+    "most accounts miss",
     "operators should watch",
     "for operators",
     "for tracking",
@@ -329,6 +369,9 @@ FINAL_BANNED_PHRASES = (
     "xintelops angle",
     "xintelops tracks",
     "your audience",
+    "the signal is",
+    "the real signal",
+    "here's why",
     "delve",
     "landscape",
     "leverage",
@@ -350,12 +393,31 @@ FINAL_BANNED_PHRASES = (
     "unlike others",
     "the key is",
     "what matters is",
-    "here's why",
     "lets unpack",
     "let's unpack",
     "deep dive",
     "signal from noise",
     "signal over noise",
+)
+
+FINAL_MALFORMED_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"under-covered\s+this", "malformed: under-covered this"),
+    (r"under-covered\s+that", "malformed: under-covered that"),
+    (r"the\s+under-covered", "malformed: the under-covered"),
+    (r"this\s+isn['']t\s+a\s+bilateral", "malformed: this isn't a bilateral"),
+    (r"not\s+a\s+bilateral", "malformed: not a bilateral"),
+)
+
+FINAL_INFLUENCER_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"if\s+you['']re\s+only", "influencer: if you're only"),
+    (r"you['']re\s+late", "influencer: you're late"),
+    (r"what\s+most\s+people\s+miss", "influencer: what most people miss"),
+    (r"what\s+most\s+analysts\s+miss", "influencer: what most analysts miss"),
+    (r"most\s+feeds\s+skip", "influencer: most feeds skip"),
+    (r"most\s+accounts\s+miss", "influencer: most accounts miss"),
+    (r"here['']s\s+why", "influencer: here's why"),
+    (r"the\s+signal\s+is", "influencer: the signal is"),
+    (r"the\s+real\s+signal", "influencer: the real signal"),
 )
 
 FINAL_INTERNAL_LABELS = (
@@ -372,7 +434,7 @@ FINAL_INTERNAL_LABELS = (
 )
 
 _FORMULAIC_LABEL_PREFIX = re.compile(
-    r"^\s*(?:why it matters|bottom line|what most analysts miss|for operators|translation|what to watch)\s*:\s*",
+    r"^\s*(?:why it matters|bottom line|what most analysts miss|what most people miss|for operators|translation|what to watch|watch next)\s*:\s*",
     re.IGNORECASE,
 )
 
@@ -388,12 +450,28 @@ _EMOJI_PATTERN = re.compile(
     flags=re.UNICODE,
 )
 
+_COMPRESSED_LIST_PATTERN = re.compile(r"\(\d+\)|(?:^|\s)\d+\)")
+_PLUS_SHORTHAND_PATTERN = re.compile(r"\S\s*\+\s*\S")
+_ARROW_PATTERN = re.compile(r"→|➜|➡")
+_EM_DASH_PATTERN = re.compile(r"—|\u2014|\u2013")
+_LOWERCASE_SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+([a-z])")
+
+
+def _strip_quoted_segments(text: str) -> str:
+    return re.sub(r"""['"][^'"]*['"]""", "", text)
+
 
 def _replace_em_dashes(text: str) -> str:
-    out = text.replace("\u2014", ". ").replace(" — ", ". ").replace("—", ". ")
+    out = _EM_DASH_PATTERN.sub(". ", text)
     out = re.sub(r"\.\s+\.", ".", out)
     out = re.sub(r"\s{2,}", " ", out)
     return out.strip()
+
+
+def _normalize_unsafe_symbols(text: str) -> str:
+    out = _ARROW_PATTERN.sub(", ", text)
+    out = _replace_em_dashes(out)
+    return re.sub(r"\s{2,}", " ", out).strip()
 
 
 def _apply_final_rewrites(text: str) -> str:
@@ -405,7 +483,7 @@ def _apply_final_rewrites(text: str) -> str:
 
 def _contains_banned_phrase(text: str) -> str | None:
     lower = text.lower()
-    for phrase in FINAL_BANNED_PHRASES:
+    for phrase in sorted(FINAL_BANNED_PHRASES, key=len, reverse=True):
         if phrase in lower:
             return phrase
     return None
@@ -432,6 +510,17 @@ def _cleanup_orphan_punctuation(text: str) -> str:
     return out.strip()
 
 
+def _capitalize_sentence_starts(text: str) -> str:
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    fixed: list[str] = []
+    for part in parts:
+        p = part.strip()
+        if p and p[0].islower():
+            p = p[0].upper() + p[1:]
+        fixed.append(p)
+    return " ".join(fixed)
+
+
 def _is_broken_after_cleaning(text: str) -> bool:
     t = text.strip()
     words = re.findall(r"\b[a-z]{2,}\b", t.lower())
@@ -444,10 +533,99 @@ def _is_broken_after_cleaning(text: str) -> bool:
     return False
 
 
+def _audit_raw_agent_violations(text: str) -> list[str]:
+    """Hard-fail patterns in agent output before rewrite (fail closed)."""
+    body = str(text or "").strip()
+    violations: list[str] = []
+
+    if _ARROW_PATTERN.search(body):
+        violations.append("unsafe symbol: arrow")
+    if _EM_DASH_PATTERN.search(body):
+        violations.append("unsafe symbol: em dash")
+    unquoted = _strip_quoted_segments(body)
+    if _PLUS_SHORTHAND_PATTERN.search(unquoted):
+        violations.append("unsafe format: plus shorthand")
+    if _COMPRESSED_LIST_PATTERN.search(body):
+        violations.append("unsafe format: compressed numbered list")
+
+    banned = _contains_banned_phrase(body)
+    if banned:
+        violations.append(f"banned phrase: {banned}")
+
+    for pattern, label in FINAL_MALFORMED_PATTERNS:
+        if re.search(pattern, body, flags=re.IGNORECASE):
+            violations.append(label)
+
+    for pattern, label in FINAL_INFLUENCER_PATTERNS:
+        if re.search(pattern, body, flags=re.IGNORECASE):
+            violations.append(label)
+
+    for match in _LOWERCASE_SENTENCE_PATTERN.finditer(body):
+        violations.append(f"lowercase sentence start: ...{match.group(1)}")
+    if body and body[0].islower():
+        violations.append("lowercase tweet start")
+
+    return violations
+
+
+def audit_final_copy_violations(text: str, *, ignore_footer: bool = True) -> list[str]:
+    """Return all remaining public-copy violations after rewrites. Empty list means pass."""
+    from xintelops.delivery.x_copy import THREAD_BRAND_FOOTER
+
+    body = str(text or "").strip()
+    if ignore_footer:
+        body = body.replace(THREAD_BRAND_FOOTER, "").strip()
+
+    violations: list[str] = []
+
+    banned = _contains_banned_phrase(body)
+    if banned:
+        violations.append(f"banned phrase: {banned}")
+
+    internal = _contains_internal_label(body)
+    if internal:
+        violations.append(f"internal label: {internal}")
+
+    if _ARROW_PATTERN.search(body):
+        violations.append("unsafe symbol: arrow")
+
+    if _EM_DASH_PATTERN.search(body):
+        violations.append("unsafe symbol: em dash")
+
+    unquoted = _strip_quoted_segments(body)
+    if _PLUS_SHORTHAND_PATTERN.search(unquoted):
+        violations.append("unsafe format: plus shorthand")
+
+    if _COMPRESSED_LIST_PATTERN.search(body):
+        violations.append("unsafe format: compressed numbered list")
+
+    for pattern, label in FINAL_MALFORMED_PATTERNS:
+        if re.search(pattern, body, flags=re.IGNORECASE):
+            violations.append(label)
+
+    for pattern, label in FINAL_INFLUENCER_PATTERNS:
+        if re.search(pattern, body, flags=re.IGNORECASE):
+            violations.append(label)
+
+    for match in _LOWERCASE_SENTENCE_PATTERN.finditer(body):
+        violations.append(f"lowercase sentence start: ...{match.group(1)}")
+
+    if body and body[0].islower():
+        violations.append("lowercase tweet start")
+
+    if re.search(r"#\w+", body):
+        violations.append("hashtag")
+
+    if _EMOJI_PATTERN.search(body):
+        violations.append("emoji")
+
+    return violations
+
+
 def final_anti_ai_slop_pass(text: str, *, max_len: int = 280) -> dict[str, Any]:
     """
     Final copy-paste safety pass on rendered public X tweet text.
-    Runs after slop, hallucination, parsing, numbering, and brand footer insertion.
+    Rewrites, normalizes, then fail-closed re-validation.
     """
     from xintelops.delivery.x_copy import THREAD_BRAND_FOOTER, fit_tweet_length, is_truncated_tweet
 
@@ -458,75 +636,65 @@ def final_anti_ai_slop_pass(text: str, *, max_len: int = 280) -> dict[str, Any]:
             "blocked": True,
             "block_reason": "Tweet is empty after final copy pass.",
             "issues": ["empty"],
+            "violations": ["empty"],
         }
 
-    issues: list[str] = []
-    cleaned = _replace_em_dashes(raw)
+    has_footer = THREAD_BRAND_FOOTER in raw
+    footer_suffix = ""
+    body = raw
+    if has_footer:
+        parts = raw.split(THREAD_BRAND_FOOTER)
+        body = parts[0].strip()
+        footer_suffix = THREAD_BRAND_FOOTER
+
+    raw_violations = _audit_raw_agent_violations(body)
+    if raw_violations:
+        return {
+            "text": body,
+            "blocked": True,
+            "block_reason": raw_violations[0],
+            "issues": raw_violations,
+            "violations": raw_violations,
+        }
+
+    cleaned = _normalize_unsafe_symbols(body)
     cleaned = _apply_final_rewrites(cleaned)
     cleaned = _strip_formulaic_labels(cleaned)
     cleaned = re.sub(r"^\s*translation\s*\.?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = _EMOJI_PATTERN.sub("", cleaned)
     cleaned = re.sub(r"#\w+", "", cleaned)
     cleaned = _cleanup_orphan_punctuation(cleaned)
+    cleaned = _capitalize_sentence_starts(cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
 
-    banned = _contains_banned_phrase(cleaned)
-    if banned:
-        cleaned = re.sub(re.escape(banned), "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-        banned = _contains_banned_phrase(cleaned)
+    if len(cleaned) > max_len - (len(footer_suffix) + 4 if footer_suffix else 0):
+        cleaned = fit_tweet_length(cleaned, max_len=max_len - (len(footer_suffix) + 4 if footer_suffix else 0))
 
-    internal = _contains_internal_label(cleaned)
-    if internal:
-        cleaned = re.sub(re.escape(internal), "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-        internal = _contains_internal_label(cleaned)
-
-    if "\u2014" in cleaned or "—" in cleaned:
-        cleaned = _replace_em_dashes(cleaned)
-        issues.append("em_dash")
+    if footer_suffix and cleaned:
+        combined = f"{cleaned}\n\n{footer_suffix}"
+        if len(combined) <= max_len:
+            cleaned = combined
+        else:
+            cleaned = cleaned
 
     body_for_truncation = cleaned.replace(THREAD_BRAND_FOOTER, "").strip()
-
-    if is_truncated_tweet(body_for_truncation) and len(cleaned) <= max_len:
-        return {
-            "text": cleaned,
-            "blocked": True,
-            "block_reason": "Tweet ends with truncated or incomplete text.",
-            "issues": issues + ["truncated"],
-        }
-
-    if len(cleaned) > max_len:
-        cleaned = fit_tweet_length(cleaned, max_len=max_len)
-        body_for_truncation = cleaned.replace(THREAD_BRAND_FOOTER, "").strip()
-
     if is_truncated_tweet(body_for_truncation):
         return {
             "text": cleaned,
             "blocked": True,
             "block_reason": "Tweet ends with truncated or incomplete text.",
-            "issues": issues + ["truncated"],
+            "issues": ["truncated"],
+            "violations": ["truncated"],
         }
 
-    banned = _contains_banned_phrase(cleaned)
-    internal = _contains_internal_label(cleaned)
-    blocked = bool(banned or internal)
-    reason = ""
-    if banned:
-        reason = f"Banned phrase remains: {banned}"
-    elif internal:
-        reason = f"Internal operator label remains: {internal}"
-    elif re.search(r"#\w+", cleaned):
-        blocked = True
-        reason = "Hashtag in public copy."
-    elif _EMOJI_PATTERN.search(cleaned):
-        blocked = True
-        reason = "Emoji in public copy."
+    violations = audit_final_copy_violations(cleaned)
+    blocked = bool(violations)
+    reason = violations[0] if violations else ""
 
     if not cleaned.strip():
         blocked = True
         reason = reason or "Tweet is empty after final copy pass."
-    elif _is_broken_after_cleaning(cleaned):
+    elif _is_broken_after_cleaning(body_for_truncation):
         blocked = True
         reason = reason or "Tweet is a broken fragment after final copy pass."
 
@@ -534,5 +702,6 @@ def final_anti_ai_slop_pass(text: str, *, max_len: int = 280) -> dict[str, Any]:
         "text": cleaned,
         "blocked": blocked,
         "block_reason": reason,
-        "issues": issues,
+        "issues": violations,
+        "violations": violations,
     }
