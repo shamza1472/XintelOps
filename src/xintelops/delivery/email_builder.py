@@ -4,6 +4,7 @@ import html
 from typing import Any
 
 from xintelops.delivery.cadence import enrich_result
+from xintelops.delivery.public_copy_gate import sanitize_visible_text
 from xintelops.delivery.source_roles import render_source_package_html
 
 
@@ -11,11 +12,15 @@ def _esc(value: Any) -> str:
     return html.escape(str(value or ""))
 
 
+def _visible(value: Any) -> str:
+    return _esc(sanitize_visible_text(str(value or "")))
+
+
 def _render_active_live_events(active: dict[str, Any]) -> str:
     events = active.get("events") or []
     if not events:
-        return f'<div class="op-line muted">{_esc(active.get("summary", "No active live events tracked this scan."))}</div>'
-    rows = [f'<div class="op-line muted">{_esc(active.get("summary") or active.get("header", ""))}</div>']
+        return f'<div class="op-line muted">{_visible(active.get("summary", "No active live events tracked this scan."))}</div>'
+    rows = [f'<div class="op-line muted">{_visible(active.get("summary") or active.get("header", ""))}</div>']
     for ev in events:
         idx = ev.get("index") or len(rows)
         cluster = f'<div class="op-line"><span class="op-key">{_esc(ev.get("cluster_note"))}</span></div>' if ev.get("cluster_note") else ""
@@ -27,7 +32,7 @@ def _render_active_live_events(active: dict[str, Any]) -> str:
             <div class="op-line"><span class="op-key">Operator decision:</span> {_esc(ev.get('operator_decision') or ev.get('current_action'))}</div>
             {cluster}
             <div class="op-line"><span class="op-key">Last seen:</span> {_esc(ev.get('last_seen') or ev.get('last_update'))}</div>
-            <div class="op-line"><span class="op-key">Why it matters:</span> {_esc(ev.get('why_it_matters') or ev.get('reason'))}</div>
+            <div class="op-line"><span class="op-key">Why it matters:</span> {_visible(ev.get('why_it_matters') or ev.get('reason'))}</div>
             """
         )
     if active.get("footer"):
@@ -75,7 +80,7 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
         copy_blocks.append(
             f"""
         <div class="op-line"><span class="op-key">SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL</span></div>
-        <div class="op-line muted">Reason: {_esc(x.get('single_block_reason'))}</div>
+        <div class="op-line muted">Reason: {_visible(x.get('single_block_reason'))}</div>
         """
         )
 
@@ -87,10 +92,13 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
         """
         )
     elif x.get("thread_block_reason"):
+        reason_text = str(x.get("thread_block_reason") or "")
+        if "Reason:" in reason_text:
+            reason_text = reason_text.split("Reason:", 1)[-1].strip()
         copy_blocks.append(
             f"""
         <div class="op-line"><span class="op-key">THREAD BLOCKED - FINAL COPY QUALITY FAIL</span></div>
-        <div class="op-line muted">Reason: {_esc(x.get('thread_block_reason'))}</div>
+        <div class="op-line muted">Reason: {_visible(reason_text)}</div>
         """
         )
 
@@ -100,14 +108,14 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
 
     return f"""
       <div class="op-section">
-        <div class="op-heading">X — post now</div>
+        <div class="op-heading">X - post now</div>
         <div class="op-line"><span class="op-key">Recommended format:</span> {_esc(recommended or x.get('format'))}</div>
         <div class="op-line"><span class="op-key">Reason:</span> {_esc(format_reason)}</div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(x.get('action'))}</div>
         <div class="op-line"><span class="op-key">Post now:</span> <strong>{_esc(x.get('post_now'))}</strong></div>
         <div class="op-line"><span class="op-key">Deadline:</span> {_esc(x.get('deadline'))}</div>
         <div class="op-line"><span class="op-key">Expires:</span> {_esc(x.get('expires'))}</div>
-        <div class="op-line"><span class="op-key">Why this won:</span> {_esc(x.get('why_this_won'))}</div>
+        <div class="op-line"><span class="op-key">Why this won:</span> {_visible(x.get('why_this_won'))}</div>
         {copy_block}
         {source_html}
       </div>
@@ -142,7 +150,7 @@ def _render_linkedin_decision(li: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Current time:</span> {_esc(li.get('current_time'))}</div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(li.get('action'))}</div>
         <div class="op-line"><span class="op-key">Topic:</span> <strong>{_esc(li.get('topic'))}</strong></div>
-        <div class="op-line"><span class="op-key">Why this topic:</span> {_esc(li.get('why_this_topic'))}</div>
+        <div class="op-line"><span class="op-key">Why this topic:</span> {_visible(li.get('why_this_topic'))}</div>
         {copy_block}
         {blocked_block}
         {why_no}
@@ -167,8 +175,8 @@ def _render_operator_block(block: dict[str, Any]) -> str:
         <div class="op-line"><strong>{_esc(immediate.get('title'))}</strong></div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(immediate.get('action'))} · Live event {_esc(immediate.get('live_event_score'))}/10 · {_esc(immediate.get('freshness_class'))}</div>
         <div class="op-line"><span class="op-key">Lane:</span> {_esc(immediate.get('lane_relevance_type'))} · Final {_esc(immediate.get('final_score'))}</div>
-        <div class="op-line"><span class="op-key">Why this fits XIntelOps:</span> {_esc(immediate.get('why_xintelops_fits'))}</div>
-        <div class="op-line">{_esc(immediate.get('why'))}</div>
+        <div class="op-line"><span class="op-key">Why this fits XIntelOps:</span> {_visible(immediate.get('why_xintelops_fits'))}</div>
+        <div class="op-line">{_visible(immediate.get('why'))}</div>
       </div>
       {_render_x_post_section(x)}
       {_render_linkedin_decision(li)}
@@ -197,7 +205,7 @@ def _render_top_signals(display: dict[str, Any]) -> str:
 
 def _render_journalist(journalist: dict[str, Any]) -> str:
     if journalist.get("engagement_skipped"):
-        return '<p class="muted">Skip — no relevant journalist post today.</p>'
+        return '<p class="muted">Skip - no relevant journalist post today.</p>'
     post_url = journalist.get("target_post_url") or ""
     link = (
         f'<a href="{_esc(post_url)}" class="post-url">{_esc(post_url)}</a>'
@@ -208,7 +216,7 @@ def _render_journalist(journalist: dict[str, Any]) -> str:
       <div class="compact-line">@{_esc(journalist.get('handle'))} · {_esc(journalist.get('outlet'))}</div>
       <div class="compact-line">Post: {link}</div>
       <div class="compact-line">They said: {_esc(journalist.get('target_post_summary'))}</div>
-      <div class="compact-line">Why comment: {_esc(journalist.get('why_we_comment'))}</div>
+      <div class="compact-line">Why comment: {_visible(journalist.get('why_we_comment'))}</div>
       <div class="post-box purple">{_esc(journalist.get('comment_draft', '')).replace(chr(10), '<br>')}</div>
     """
 
@@ -291,7 +299,7 @@ def build_email_html(result: dict[str, Any]) -> str:
       <div class="section-label">Top Signals Today</div>
       {_render_top_signals(top_display)}
     </div>
-    {'<div class="section"><div class="section-label">LinkedIn — ' + _esc(li_block.get("status", "POST")) + '</div><div class="post-box linkedin">' + _esc(li_block.get("copy_this") or li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div></div>' if show_linkedin else ''}
+    {'<div class="section"><div class="section-label">LinkedIn - ' + _esc(li_block.get("status", "POST")) + '</div><div class="post-box linkedin">' + _esc(li_block.get("copy_this") or li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div></div>' if show_linkedin else ''}
     <div class="section">
       <div class="section-label">Journalist engagement</div>
       {_render_journalist(journalist)}

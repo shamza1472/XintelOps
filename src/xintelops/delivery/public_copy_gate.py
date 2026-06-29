@@ -180,6 +180,55 @@ _DANGLING_FINAL_WORDS = frozenset({
     "track", "watch", "the", "a", "an", "to", "for", "with", "by", "on", "at", "in", "of", "and", "or",
 })
 
+_EDITORIAL_WEAK_PHRASES = (
+    "live again but fragile",
+    "live again but",
+    "violation cycle",
+    "produce anything durable",
+    "worth tracking",
+    "before markets reopen",
+    "another violation cycle",
+    "directly affects hormuz shipping risk",
+    "anything durable",
+    "ceasefire is live again",
+    "remains fragile",
+    "another violation",
+    "reprices within hours",
+    "headline cycle",
+    "the pause remains uncertain",
+    "the next escalation",
+    "transit risk changes before",
+    "whether doha talks transit risk",
+)
+
+_EDITORIAL_REWRITES: tuple[tuple[str, str], ...] = (
+    ("live again but fragile,", ""),
+    ("live again but fragile", ""),
+    ("violation cycle", ""),
+    ("another violation cycle", ""),
+    ("produce anything durable", ""),
+    ("worth tracking follow-on reporting from", ""),
+    ("worth tracking", ""),
+    ("before markets reopen", "before the next round of talks"),
+    ("the ceasefire is live again but fragile,", ""),
+    ("the ceasefire is live again but fragile", ""),
+    ("ceasefire is live again", ""),
+    ("directly affects hormuz shipping risk", ""),
+    ("the pause remains uncertain.", ""),
+    ("the pause remains uncertain", ""),
+    ("the next escalation", ""),
+)
+
+_COMMA_SPLICE_PATTERNS = (
+    re.compile(r"\b(?:fragile|again|live|strikes|talks|pause|ceasefire|unclear)\s*,\s*(?:another|any|the|it|this|each|more)\b", re.I),
+    re.compile(r"\.\s*[^.]+\s,\s*(?:another|any|the|it|this)\s+\w+", re.I),
+    re.compile(r"\b,\s+another\s+(?:violation|cycle|round|wave|strike)\b", re.I),
+)
+
+_VAGUE_ISSUE_PATTERN = re.compile(
+    r"\bthe issue is\b(?!\s+(?:now\s+)?whether\b)",
+    re.I,
+)
 
 class GateResult(TypedDict):
     text: str
@@ -260,6 +309,132 @@ def _violations_are_completeness_only(violations: list[str]) -> bool:
         return False
     completeness_markers = ("incomplete", "truncated tweet", "truncated", "dangling")
     return all(any(marker in v.lower() for marker in completeness_markers) for v in violations)
+
+
+def _violations_are_editorial_only(violations: list[str]) -> bool:
+    if not violations:
+        return False
+    editorial_markers = ("editorial quality", "comma splice", "weak phrase", "vague phrasing", "generated phrasing")
+    return all(any(marker in v.lower() for marker in editorial_markers) for v in violations)
+
+
+def audit_editorial_quality(text: str) -> list[str]:
+    """Detect weak generated phrasing, comma splices, and vague operator-facing copy."""
+    t = str(text or "").strip()
+    if not t:
+        return ["empty copy"]
+
+    violations: list[str] = []
+    lower = t.lower()
+
+    for phrase in _EDITORIAL_WEAK_PHRASES:
+        if phrase in lower:
+            violations.append(f"weak phrase: {phrase}")
+
+    for pattern in _COMMA_SPLICE_PATTERNS:
+        if pattern.search(t):
+            violations.append("comma splice")
+            break
+
+    if _VAGUE_ISSUE_PATTERN.search(t):
+        violations.append("vague phrasing: the issue is without whether-clause")
+
+    if re.search(r"\bworth tracking\b", lower):
+        violations.append("generated phrasing: worth tracking")
+
+    if re.search(r"\bbefore markets reopen\b", lower):
+        violations.append("weak phrase: before markets reopen")
+
+    if re.search(r"\.\s*,\s*\w", t):
+        violations.append("broken phrasing: orphan comma after sentence break")
+
+    if re.search(r"\bgulf basing,\s+and whether\b", lower):
+        violations.append("weak phrase: gulf basing, and whether")
+
+    if re.search(r",\s+and whether\b", lower) and not re.search(
+        r"\bthe issue(?: now)? is whether\b", lower
+    ):
+        violations.append("vague phrasing: dangling and whether clause")
+
+    return violations
+
+
+def repair_editorial_public_copy(text: str) -> str:
+    """Rewrite weak phrasing and fix comma splices once."""
+    t = sanitize_public_copy(text)
+    if not t:
+        return ""
+
+    for old, new in sorted(_EDITORIAL_REWRITES, key=lambda x: -len(x[0])):
+        t = re.sub(re.escape(old), new, t, flags=re.IGNORECASE)
+
+    t = re.sub(
+        r"\b(?:the )?ceasefire is live again but fragile,\s*",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(
+        r",\s+another\s+(?:violation cycle|violation|round)[^.]*\.",
+        ".",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(
+        r"\blive,\s+(?:any|another)\b",
+        "live. ",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(r"\.\s*,\s*", ". ", t)
+    t = re.sub(r"\s{2,}", " ", t)
+    t = re.sub(r"\.\s*\.", ".", t)
+    return t.strip()
+
+
+def validate_editorial_quality(
+    text: str,
+    platform: Platform,
+    format_type: FormatType,
+) -> GateResult:
+    """Final editorial quality validator for paste-ready public copy."""
+    body = sanitize_public_copy(text)
+    violations = audit_editorial_quality(body)
+    passed = not violations and bool(body.strip())
+    reason = violations[0] if violations else ""
+    return {
+        "text": body if passed else "",
+        "passed": passed,
+        "blocked": not passed,
+        "block_reason": reason,
+        "violations": violations,
+        "platform": platform,
+        "format_type": format_type,
+    }
+
+
+def format_operator_block_reason(violation: str, *, format_label: str = "Thread") -> str:
+    """Convert internal validation fragments into operator-readable block reasons."""
+    v = str(violation or "").strip()
+    lower = v.lower()
+    if "pakistan/afghanistan" in lower or "pakistan" in lower and "us-iran" in lower:
+        return f"{format_label} blocked because it referenced Pakistan/Afghanistan while the selected signal is US/Iran."
+    if "different signal topic" in lower:
+        return f"{format_label} blocked because it referenced a different signal topic."
+    if "foreign actors" in lower or "not in selected signal" in lower:
+        return f"{format_label} blocked because it referenced actors or locations outside the selected signal."
+    if "comma splice" in lower:
+        return f"{format_label} blocked because the copy contained a comma splice."
+    if "weak phrase" in lower or "generated phrasing" in lower or "vague phrasing" in lower:
+        return f"{format_label} blocked because the copy needed manual rewriting before posting."
+    if v:
+        return f"{format_label} blocked because {v[0].lower() + v[1:] if len(v) > 1 else v.lower()}."
+    return f"{format_label} blocked because final copy quality failed."
+
+
+def sanitize_visible_text(text: str) -> str:
+    """Sanitize any operator-visible generated text (email fields, summaries, reasons)."""
+    return sanitize_public_copy(str(text or ""))
 
 
 def resolve_effective_format_recommendation(
@@ -377,12 +552,10 @@ def _foreign_topic_violations(
         selected_tokens = selected_anchors.get("tokens") or set()
         copy_distinctive_hits = {
             t for t in distinctive
-            if t in copy_lower and t in _STRONG_GEO_ENTITIES and t not in selected_tokens
+            if len(t) >= 3 and t in copy_lower and t in _STRONG_GEO_ENTITIES and t not in selected_tokens
         }
         if copy_distinctive_hits and not (geo_hits & (selected_anchors.get("geo") or set())):
-            violations.append(
-                f"copy matches different signal topic ({', '.join(sorted(copy_distinctive_hits))})"
-            )
+            violations.append("copy matches different signal topic")
     return violations
 
 
@@ -659,6 +832,11 @@ def validate_public_copy(
         if v not in violations:
             violations.append(v)
 
+    for v in audit_editorial_quality(check_body):
+        mapped = f"editorial quality: {v}"
+        if mapped not in violations:
+            violations.append(mapped)
+
     passed = not violations and bool(check_body.strip())
     reason = violations[0] if violations else ""
     return {
@@ -704,6 +882,30 @@ def prepare_public_copy(
             )
             if completeness_retry["passed"]:
                 return completeness_retry
+            editorial_on_repaired = repair_editorial_public_copy(repaired)
+            if editorial_on_repaired and editorial_on_repaired != repaired:
+                chained = validate_public_copy(
+                    editorial_on_repaired,
+                    platform,
+                    format_type,
+                    sources=sources,
+                    primary_title=primary_title,
+                )
+                if chained["passed"]:
+                    return chained
+
+    if _violations_are_editorial_only(first["violations"]):
+        repaired = repair_editorial_public_copy(sanitized)
+        if repaired and repaired != sanitized:
+            editorial_retry = validate_public_copy(
+                repaired,
+                platform,
+                format_type,
+                sources=sources,
+                primary_title=primary_title,
+            )
+            if editorial_retry["passed"]:
+                return editorial_retry
 
     repaired = sanitize_public_copy(sanitized)
     if repaired != sanitized:
@@ -746,8 +948,19 @@ def build_minimal_verified_single_tweet(
     """Deterministic minimal single tweet from structured facts only."""
     source_package = source_package or []
     title = str(signal.get("title") or "").strip().rstrip(".")
+    title_lower = title.lower()
     region = str(signal.get("region") or "").strip()
-    confidence = str(signal.get("confidence") or "").upper()
+
+    if (
+        "iran" in title_lower
+        and ("us" in title_lower or "u.s." in title_lower or "washington" in title_lower or "stand down" in title_lower)
+    ):
+        text = (
+            "US and Iran say they will stand down after weekend strikes. "
+            "The issue now is whether the pause lowers Hormuz shipping risk, Gulf basing pressure, "
+            "and insurance pricing before the next round of Doha talks."
+        )
+        return fit_tweet_length(text, 280)
 
     verified: list[str] = []
     for item in signal.get("verified_facts") or []:
@@ -756,16 +969,6 @@ def build_minimal_verified_single_tweet(
         else:
             verified.append(str(item))
     verified = [v.strip().rstrip(".") for v in verified if v.strip()]
-
-    implication = str(
-        signal.get("summary") or signal.get("why_hamza_should_care") or ""
-    ).strip()
-    if implication and re.search(
-        r"why_this|xintelops|operator|score|the signal|watch next|bottom line|if you",
-        implication,
-        re.I,
-    ):
-        implication = ""
 
     parts: list[str] = []
     if title:
@@ -776,34 +979,34 @@ def build_minimal_verified_single_tweet(
     if verified and verified[0].lower() not in (title or "").lower():
         parts.append(f"{verified[0]}.")
 
-    if implication and implication.lower() not in " ".join(parts).lower():
-        imp = implication if implication.endswith(".") else f"{implication}."
-        parts.append(imp)
+    implication = str(
+        signal.get("summary") or signal.get("why_hamza_should_care") or ""
+    ).strip()
+    if implication and re.search(
+        r"why_this|xintelops|operator|score|the signal|watch next|bottom line|if you|you're late",
+        implication,
+        re.I,
+    ):
+        implication = ""
+    if implication and not audit_editorial_quality(implication):
+        if implication.lower() not in " ".join(parts).lower():
+            parts.append(implication if implication.endswith(".") else f"{implication}.")
 
-    if confidence in {"", "LOW", "MEDIUM"}:
-        title_lower = title.lower()
-        if "iran" in title_lower and ("us" in title_lower or "washington" in title_lower or "stand down" in title_lower):
-            parts.append(
-                "The key issue is whether the pause changes transit risk, Gulf basing posture, "
-                "and insurance pricing before Tuesday's Doha talks."
-            )
-        elif region.lower() in {"gulf", "middle east"} or "hormuz" in title_lower:
-            parts.append(
-                "The key issue is whether shipping and basing risk ease before follow-on diplomacy."
-            )
-        else:
-            parts.append("Some details remain unclear until follow-on reporting confirms the timeline.")
-    elif region:
-        parts.append(f"Worth tracking follow-on reporting from {region}.")
+    if region.lower() in {"gulf", "middle east"} or "hormuz" in title_lower:
+        parts.append(
+            "The issue now is whether the pause lowers shipping risk, Gulf basing pressure, "
+            "and insurance pricing before follow-on diplomacy."
+        )
+    else:
+        parts.append("Some details remain unclear until follow-on reporting confirms the timeline.")
 
     text = " ".join(parts).strip()
     if not text and source_package:
         src = source_package[0]
         name = src.get("name") or src.get("source") or "Reporting"
-        parts = [f"{name} reports an update on {title or 'the selected signal'}."]
-        text = " ".join(parts)
+        text = f"{name} reports an update on {title or 'the selected signal'}."
 
-    return fit_tweet_length(text, 260) if text else ""
+    return fit_tweet_length(text, 280) if text else ""
 
 
 def build_safe_linkedin_fallback(

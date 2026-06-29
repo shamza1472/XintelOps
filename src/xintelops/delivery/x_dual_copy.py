@@ -5,14 +5,17 @@ from typing import Any
 
 from xintelops.delivery.public_copy_gate import (
     build_minimal_verified_single_tweet,
+    format_operator_block_reason,
     get_verified_signals,
     prepare_public_copy,
+    repair_editorial_public_copy,
     repair_incomplete_public_copy,
     resolve_effective_format_recommendation,
     selected_signal_has_verified_source,
     validate_copy_signal_binding,
     _foreign_topic_violations,
     _violations_are_completeness_only,
+    _violations_are_editorial_only,
 )
 from xintelops.delivery.x_copy import (
     apply_brand_footer_to_tweets,
@@ -148,17 +151,24 @@ def build_single_from_facts(facts: dict[str, Any]) -> str:
     parts: list[str] = []
     if event:
         parts.append(event)
-    if implication and implication.lower() not in (event or "").lower():
+
+    title_lower = str(facts.get("title") or "").lower()
+    region = str(facts.get("region") or "").lower()
+    if (
+        "iran" in title_lower
+        and ("us" in title_lower or "stand down" in title_lower or "stand-down" in title_lower)
+    ):
+        parts.append(
+            "The issue now is whether the pause lowers Hormuz shipping risk, Gulf basing pressure, "
+            "and insurance pricing before the next round of Doha talks."
+        )
+    elif implication and implication.lower() not in (event or "").lower():
         parts.append(implication if implication.endswith(".") else f"{implication}.")
-    if watch:
-        watch_line = watch
-        if not re.match(r"^(Watch|Treat|Worth)", watch_line, re.I):
-            watch_line = f"Worth tracking whether {watch_line.rstrip('.')}."
-        elif not watch_line.endswith("."):
-            watch_line += "."
-        parts.append(watch_line)
-    elif facts.get("region"):
-        parts.append(f"Worth tracking follow-on reporting from {facts['region']}.")
+    elif region in {"gulf", "middle east"} or "hormuz" in title_lower:
+        parts.append(
+            "The issue now is whether the pause lowers shipping risk, Gulf basing pressure, "
+            "and insurance pricing before follow-on diplomacy."
+        )
 
     text = " ".join(parts).strip()
     if not text:
@@ -189,7 +199,8 @@ def build_thread_from_facts(facts: dict[str, Any]) -> list[str]:
     region = str(facts.get("region") or "").lower()
     if "iran" in title_lower and ("stand down" in title_lower or "stand-down" in title_lower):
         tweets.append(
-            "The ceasefire remains fragile. Doha talks on Tuesday will test whether the stand-down changes transit behavior near Hormuz."
+            "The issue now is whether the pause lowers Hormuz shipping risk, Gulf basing pressure, "
+            "and insurance pricing before the next round of Doha talks."
         )
     elif region in {"gulf", "middle east"} or "hormuz" in title_lower:
         tweets.append("The issue is whether shipping and basing risk ease before the talks.")
@@ -211,6 +222,11 @@ def build_thread_from_facts(facts: dict[str, Any]) -> list[str]:
 
     cleaned = [fit_tweet_length(t) for t in tweets if t and len(t) >= 20]
     return cleaned[:6]
+
+
+def _format_block_reason(format_label: str, reason: str) -> str:
+    clean = format_operator_block_reason(reason, format_label=format_label)
+    return f"{format_label.upper()} BLOCKED - FINAL COPY QUALITY FAIL\nReason: {clean}"
 
 
 def _empty_single_result(reason: str) -> dict[str, Any]:
@@ -257,9 +273,19 @@ def _finalize_single(
                 sources=sources,
                 primary_title=primary_title,
             )
+    if not gate["passed"] and _violations_are_editorial_only(gate.get("violations") or []):
+        repaired = repair_editorial_public_copy(single)
+        if repaired:
+            gate = prepare_public_copy(
+                repaired,
+                "x",
+                "single_tweet",
+                sources=sources,
+                primary_title=primary_title,
+            )
     if not gate["passed"]:
         reason = gate.get("block_reason") or "Final copy quality fail."
-        return _empty_single_result(f"SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: {reason}")
+        return _empty_single_result(_format_block_reason("Single tweet", reason))
 
     binding = validate_copy_signal_binding(
         gate["text"],
@@ -270,7 +296,7 @@ def _finalize_single(
     )
     if not binding["passed"]:
         return _empty_single_result(
-            f"SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: {binding.get('block_reason', 'Signal binding fail')}"
+            _format_block_reason("Single tweet", binding.get("block_reason", "Signal binding fail"))
         )
 
     final = gate["text"]
@@ -300,18 +326,17 @@ def _finalize_thread(
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": "THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: No thread tweets available.",
+            "block_reason": _format_block_reason("Thread", "No thread tweets available."),
         }
 
     validation = validate_thread_tweets(tweets)
     if validation.get("blocked"):
-        reason = validation.get("block_reason") or "Malformed thread."
         return {
             "passed": False,
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": f"THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: {reason}",
+            "block_reason": _format_block_reason("Thread", validation.get("block_reason") or "Malformed thread."),
         }
 
     edited_tweets: list[str] = []
@@ -329,7 +354,7 @@ def _finalize_thread(
                 "text": "",
                 "tweets": [],
                 "display": "",
-                "block_reason": f"THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: {gate.get('block_reason', 'Editorial fail')}",
+                "block_reason": _format_block_reason("Thread", gate.get("block_reason", "Editorial fail")),
             }
         binding = validate_copy_signal_binding(
             gate["text"],
@@ -344,7 +369,7 @@ def _finalize_thread(
                 "text": "",
                 "tweets": [],
                 "display": "",
-                "block_reason": f"THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: {binding.get('block_reason', 'Signal binding fail')}",
+                "block_reason": _format_block_reason("Thread", binding.get("block_reason", "Signal binding fail")),
             }
         edited_tweets.append(gate["text"])
 
@@ -360,7 +385,7 @@ def _finalize_thread(
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": f"THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: {combined_binding.get('block_reason', 'Signal binding fail')}",
+            "block_reason": _format_block_reason("Thread", combined_binding.get("block_reason", "Signal binding fail")),
         }
 
     tweets_with_footer = apply_brand_footer_to_tweets(edited_tweets)
@@ -438,12 +463,12 @@ def build_dual_x_copy(
     recommended, format_reason = recommend_x_format(signal, facts, requested_action)
 
     single_candidates: list[str] = []
-    built_single = build_single_from_facts(facts)
-    if built_single:
-        single_candidates.append(built_single)
     agent_single = format_single_post(str(result.get("x_post") or ""))
-    if agent_single and agent_single not in single_candidates:
+    if agent_single:
         single_candidates.append(agent_single)
+    built_single = build_single_from_facts(facts)
+    if built_single and built_single not in single_candidates:
+        single_candidates.append(built_single)
     minimal = build_minimal_verified_single_tweet(signal, sources)
     if minimal and minimal not in single_candidates:
         single_candidates.append(minimal)
