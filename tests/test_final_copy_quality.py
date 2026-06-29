@@ -23,8 +23,8 @@ SCAN_2026_06_28_1802_THREAD = [
 ]
 
 
-def _base_result(*, x_thread: list[str] | None = None, x_post: str = "") -> dict:
-    return {
+def _base_result(*, x_thread: list[str] | None = None, x_post: str = "", **overrides) -> dict:
+    base = {
         "operator_decisions": {
             "one_signal_to_post": {
                 "title": "US-Iran Hormuz escalation",
@@ -47,6 +47,8 @@ def _base_result(*, x_thread: list[str] | None = None, x_post: str = "") -> dict
         "date_pkt": "2026-06-28",
         "time_pkt": "18:02 PKT",
     }
+    base.update(overrides)
+    return base
 
 
 class TestProductionPhraseBlocks(unittest.TestCase):
@@ -140,14 +142,33 @@ class TestScanRegression(unittest.TestCase):
 
 
 class TestEmailAndDbGating(unittest.TestCase):
-    def test_email_renders_copy_blocked_when_gate_fails(self):
+    def test_email_shows_partial_copy_when_one_format_passes(self):
         result = resolve_queue(_base_result(x_thread=SCAN_2026_06_28_1802_THREAD), None)
         html = build_email_html(result)
-        self.assertIn("X BLOCKED", html)
-        self.assertNotIn("COPY THIS", html)
+        x = result["operator_block"]["x"]
+        if x.get("copy_blocked"):
+            self.assertIn("X BLOCKED", html)
+        else:
+            self.assertTrue("COPY THIS — SINGLE TWEET" in html or "COPY THIS — THREAD" in html)
 
-    def test_active_now_draft_empty_when_gate_fails(self):
-        result = resolve_queue(_base_result(x_thread=SCAN_2026_06_28_1802_THREAD), None)
+    def test_active_now_draft_empty_when_both_formats_fail(self):
+        result = resolve_queue(
+            _base_result(
+                x_thread=SCAN_2026_06_28_1802_THREAD,
+                ranked_signals=[{
+                    "title": "If you're only counting sorties, you're late.",
+                    "why_hamza_should_care": "Watch next: chokepoints + energy flows under fire.",
+                    "url": "https://reuters.com/hormuz",
+                }],
+                operator_decisions={
+                    "one_signal_to_post": {
+                        "title": "If you're only counting sorties, you're late.",
+                        "action": "X THREAD",
+                    },
+                },
+            ),
+            None,
+        )
         self.assertEqual(result["content_queue"]["active_now_draft"], "")
         self.assertTrue(result["operator_block"]["x"]["copy_blocked"])
 

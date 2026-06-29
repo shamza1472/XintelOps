@@ -7,6 +7,7 @@ from typing import Any
 from xintelops.delivery.editorial import editorial_pipeline
 from xintelops.delivery.ranking import compute_rank_score
 from xintelops.delivery.source_roles import build_role_separated_package
+from xintelops.delivery.x_dual_copy import build_dual_x_copy
 from xintelops.delivery.x_copy import (
     apply_brand_footer_to_tweets,
     apply_final_copy_safety_gate,
@@ -262,23 +263,46 @@ def resolve_queue(
     x_blocked = False
     x_block_reason = ""
     effective_action = post_action
+    dual_copy: dict[str, Any] = {}
 
     if post_action in {"X POST", "X THREAD"}:
-        draft = _format_draft(result, post_action)
-        meta = result.get("_x_copy_meta") or {}
-        if meta.get("blocked") or not draft:
-            x_blocked = True
-            x_block_reason = meta.get("block_reason") or "Operator action requires publishable X copy, but no X copy was available."
+        dual_copy = build_dual_x_copy(result, flat_sources, post_title, post_action)
+        result["_x_dual_copy"] = dual_copy
+
+        single = dual_copy.get("single") or {}
+        thread = dual_copy.get("thread") or {}
+        single_ok = bool(single.get("passed"))
+        thread_ok = bool(thread.get("passed"))
+
+        if single_ok:
+            result["x_post"] = single.get("text") or ""
+        if thread_ok:
+            result["x_thread"] = thread.get("tweets") or []
+
+        x_blocked = not (single_ok or thread_ok)
+        if x_blocked:
+            x_block_reason = (
+                "Single tweet and thread both failed final validation.\n"
+                f"{single.get('block_reason', '')}\n{thread.get('block_reason', '')}".strip()
+            )
             effective_action = "MONITOR"
             draft = ""
+        else:
+            draft = dual_copy.get("primary_draft") or ""
+            effective_action = post_action
 
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
     active_expires = scan_time + timedelta(hours=ACTIVE_EXPIRES_HOURS)
+
+    single_meta = dual_copy.get("single") or {}
+    thread_meta = dual_copy.get("thread") or {}
 
     x_section = {
         "action": effective_action,
         "requested_action": post_action,
         "format": _format_label(post_action) if not x_blocked else "BLOCKED",
+        "recommended_format": dual_copy.get("recommended_format", ""),
+        "format_reason": dual_copy.get("format_reason", ""),
         "post_now": post_title,
         "deadline": format_pkt(active_deadline),
         "expires": format_pkt(active_expires),
@@ -286,6 +310,12 @@ def resolve_queue(
         "source_package": flat_sources,
         "source_buckets": source_buckets,
         "draft": draft,
+        "single_copy": single_meta.get("display") or "",
+        "single_blocked": not single_meta.get("passed"),
+        "single_block_reason": single_meta.get("block_reason") or "",
+        "thread_copy": thread_meta.get("display") or "",
+        "thread_blocked": not thread_meta.get("passed"),
+        "thread_block_reason": thread_meta.get("block_reason") or "",
         "copy_blocked": x_blocked,
         "block_reason": x_block_reason,
         "editorial_scores": result.get("_editorial_scores") or {},

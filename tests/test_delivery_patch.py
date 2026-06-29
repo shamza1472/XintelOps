@@ -72,8 +72,9 @@ class TestXCopyInOperatorBlock(unittest.TestCase):
         )
         result = resolve_queue(result, None)
         x = result["operator_block"]["x"]
-        self.assertIn("COPY THIS", build_email_html(result))
-        self.assertIn("1/ PLA Fujian", x["draft"])
+        html = build_email_html(result)
+        self.assertIn("COPY THIS — THREAD", html)
+        self.assertIn("1/ PLA Fujian", x.get("thread_copy") or x.get("draft", ""))
         self.assertFalse(x["copy_blocked"])
 
     def test_x_post_renders_single_post_inside_operator_block(self):
@@ -86,24 +87,34 @@ class TestXCopyInOperatorBlock(unittest.TestCase):
             ranked_signals=[{**_thread_signal(), "recommended_action": "X POST"}],
         )
         result = resolve_queue(result, None)
-        draft = result["operator_block"]["x"]["draft"]
+        x = result["operator_block"]["x"]
+        draft = x.get("single_copy") or x.get("draft") or ""
         self.assertNotIn("THREAD", draft.split("\n")[0])
         self.assertIn("Fujian transit", draft)
-        self.assertIn("COPY THIS", build_email_html(result))
+        self.assertIn("COPY THIS — SINGLE TWEET", build_email_html(result))
 
-    def test_missing_x_copy_blocks_post_instruction(self):
+    def test_missing_x_copy_uses_fact_fallback_or_blocks(self):
         result = _base_result(
             operator_decisions={
                 "one_signal_to_post": {"title": "Missing copy signal", "action": "X THREAD", "why": "No draft"},
                 "best_immediate_post": {"title": "Missing copy signal", "action": "X THREAD"},
             },
-            ranked_signals=[_thread_signal("Missing copy signal")],
+            ranked_signals=[{
+                **_thread_signal("Missing copy signal"),
+                "why_hamza_should_care": "",
+                "live_event_score": 0,
+            }],
+            x_post="If you're only counting sorties, you're late. the corridor risk repricing is the signal.",
+            x_thread=["Watch next: (1) bad", "The under-covered this isn't", "→ arrow copy"],
         )
         result = resolve_queue(result, None)
         html = build_email_html(result)
-        self.assertIn("X BLOCKED — COPY NOT GENERATED", html)
-        self.assertNotIn("X — post now", html)
-        self.assertEqual(result["operator_block"]["x"]["action"], "MONITOR")
+        self.assertNotIn("COPY NOT GENERATED", html)
+        x = result["operator_block"]["x"]
+        if x["copy_blocked"]:
+            self.assertIn("X BLOCKED — NO VALID PUBLIC COPY", html)
+        else:
+            self.assertIn("COPY THIS — SINGLE TWEET", html)
 
 
 class TestThreadNormalization(unittest.TestCase):

@@ -39,28 +39,56 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
     if x.get("copy_blocked"):
         return f"""
         <div class="op-section">
-          <div class="op-heading">X BLOCKED — COPY NOT GENERATED</div>
-          <div class="op-line">Reason: {_esc(x.get('block_reason') or 'Operator action requires publishable X copy, but no X copy was available.')}</div>
-          <div class="op-line">Fallback: Monitor only until copy is generated.</div>
+          <div class="op-heading">X BLOCKED — NO VALID PUBLIC COPY</div>
+          <div class="op-line">Reason: {_esc(x.get('block_reason') or 'Single tweet and thread both failed final validation.')}</div>
+          <div class="op-line">Fallback: Monitor only.</div>
         </div>
         """
 
-    copy_block = ""
-    draft = x.get("draft") or ""
-    if draft:
-        copy_block = f"""
-        <div class="op-line"><span class="op-key">COPY THIS</span></div>
-        <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(draft).replace(chr(10), '<br>')}</div>
-        """
+    copy_blocks: list[str] = []
+    recommended = x.get("recommended_format") or ""
+    format_reason = x.get("format_reason") or ""
 
+    if not x.get("single_blocked") and x.get("single_copy"):
+        copy_blocks.append(
+            f"""
+        <div class="op-line"><span class="op-key">COPY THIS — SINGLE TWEET</span></div>
+        <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(x.get('single_copy')).replace(chr(10), '<br>')}</div>
+        """
+        )
+    elif x.get("single_block_reason"):
+        copy_blocks.append(
+            f"""
+        <div class="op-line"><span class="op-key">SINGLE TWEET BLOCKED — FINAL COPY QUALITY FAIL</span></div>
+        <div class="op-line muted">Reason: {_esc(x.get('single_block_reason'))}</div>
+        """
+        )
+
+    if not x.get("thread_blocked") and x.get("thread_copy"):
+        copy_blocks.append(
+            f"""
+        <div class="op-line"><span class="op-key">COPY THIS — THREAD</span></div>
+        <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(x.get('thread_copy')).replace(chr(10), '<br>')}</div>
+        """
+        )
+    elif x.get("thread_block_reason"):
+        copy_blocks.append(
+            f"""
+        <div class="op-line"><span class="op-key">THREAD BLOCKED — FINAL COPY QUALITY FAIL</span></div>
+        <div class="op-line muted">Reason: {_esc(x.get('thread_block_reason'))}</div>
+        """
+        )
+
+    copy_block = "".join(copy_blocks)
     buckets = x.get("source_buckets") or {}
     source_html = render_source_package_html(buckets, _esc) if buckets else ""
 
     return f"""
       <div class="op-section">
         <div class="op-heading">X — post now</div>
+        <div class="op-line"><span class="op-key">Recommended format:</span> {_esc(recommended or x.get('format'))}</div>
+        <div class="op-line"><span class="op-key">Reason:</span> {_esc(format_reason)}</div>
         <div class="op-line"><span class="op-key">Action:</span> {_esc(x.get('action'))}</div>
-        <div class="op-line"><span class="op-key">Format:</span> {_esc(x.get('format'))}</div>
         <div class="op-line"><span class="op-key">Post now:</span> <strong>{_esc(x.get('post_now'))}</strong></div>
         <div class="op-line"><span class="op-key">Deadline:</span> {_esc(x.get('deadline'))}</div>
         <div class="op-line"><span class="op-key">Expires:</span> {_esc(x.get('expires'))}</div>
