@@ -222,8 +222,11 @@ class TestLinkedInGate(unittest.TestCase):
             "crisis_tier_meta": {"immediate_tier": "FLASHPOINT"},
         }
         block = build_linkedin_block(result, [])
-        self.assertTrue(block.get("copy_blocked"))
-        self.assertFalse(block.get("copy_this"))
+        self.assertFalse(block.get("copy_blocked"))
+        self.assertTrue(block.get("copy_this"))
+        assert_no_em_dashes(block["copy_this"])
+        self.assertNotIn("if you're only", block["copy_this"].lower())
+        self.assertNotIn("the signal", block["copy_this"].lower())
 
 
 class TestThreadGate(unittest.TestCase):

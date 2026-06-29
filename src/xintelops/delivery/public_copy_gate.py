@@ -11,7 +11,10 @@ from xintelops.delivery.editorial import (
     _EMOJI_PATTERN,
     _EM_DASH_PATTERN,
     _PLUS_SHORTHAND_PATTERN,
+    _soften_certainty,
     _strip_formulaic_labels,
+    _strip_slop_phrases,
+    anti_hallucination_pass,
     audit_final_copy_violations,
     editorial_pipeline,
     final_anti_ai_slop_pass,
@@ -204,6 +207,22 @@ def _max_len_for(format_type: str) -> int | None:
     return None
 
 
+def _long_form_public_pass(
+    text: str,
+    sources: list[dict[str, Any]] | None,
+    *,
+    primary_title: str = "",
+) -> dict[str, Any]:
+    """Long-form public pass: strip slop and block only unsupported claims, not score heuristics."""
+    cleaned = _soften_certainty(_strip_slop_phrases(text))
+    hall = anti_hallucination_pass(cleaned, sources, primary_title=primary_title)
+    return {
+        "text": hall["text"],
+        "blocked": hall["blocked"],
+        "block_reason": hall.get("block_reason") or "",
+    }
+
+
 def validate_public_copy(
     text: str,
     platform: Platform,
@@ -262,8 +281,14 @@ def validate_public_copy(
     elif max_len and len(check_body) > max_len:
         check_body = check_body[:max_len].rsplit(" ", 1)[0].rstrip(",;") + "."
 
-    if format_type in {"single_tweet", "linkedin_post", "substack_post", "public_summary"}:
+    if format_type == "single_tweet":
         edited = editorial_pipeline(check_body, sources, primary_title=primary_title)
+        if edited.get("blocked"):
+            violations.append(edited.get("block_reason") or "editorial fail")
+        else:
+            check_body = edited["text"]
+    elif format_type in {"linkedin_post", "substack_post", "public_summary"}:
+        edited = _long_form_public_pass(check_body, sources, primary_title=primary_title)
         if edited.get("blocked"):
             violations.append(edited.get("block_reason") or "editorial fail")
         else:
@@ -431,20 +456,30 @@ def build_safe_linkedin_fallback(
             verified.append(str(item))
     verified = [v.strip() for v in verified if v.strip()]
 
+    source_name = ""
+    if source_package:
+        source_name = str(source_package[0].get("name") or source_package[0].get("source") or "Official reporting")
+
     event_line = verified[0] if verified else title
-    para1 = f"{event_line.rstrip('.')}. "
+    if source_name and verified:
+        para1 = (
+            f"{source_name} reports that {event_line.rstrip('.')}. "
+        )
+    else:
+        para1 = f"{event_line.rstrip('.')}. "
+
     if confidence in {"", "LOW", "MEDIUM"}:
-        para1 += "Available confirmation remains uneven, so the update should not be treated as fully settled."
+        para1 += "Available confirmation remains uneven, so the corridor risk should not be treated as resolved."
     else:
         para1 += "Reporting is still developing on secondary details."
 
     para2 = (
-        f"The issue is whether behavior in {region} changes before follow-on diplomacy or enforcement steps catch up. "
-        "Transit, basing, insurance pricing, and official statements remain part of the same operating picture."
+        f"The issue is whether commercial transit behavior in {region} changes before follow-on diplomacy catches up. "
+        "Gulf basing risk, insurance pricing, and official statements remain part of the same operating picture."
     )
 
     para3 = (
-        "The next indicators are official statements, transit behavior, and whether follow-on reporting confirms the same timeline."
+        "The next indicators are transit recovery data, Gulf state statements, and whether follow-on reporting confirms the same timeline."
     )
     if secondary_signals:
         sec_title = str(secondary_signals[0].get("title") or "").strip()
