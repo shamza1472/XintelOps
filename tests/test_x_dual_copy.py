@@ -159,8 +159,8 @@ class TestDualCopyGeneration(unittest.TestCase):
         html = build_email_html(resolved)
         x = resolved["operator_block"]["x"]
         self.assertFalse(x["copy_blocked"])
-        self.assertIn("COPY THIS — SINGLE TWEET", html)
-        self.assertIn("COPY THIS — THREAD", html)
+        self.assertIn("COPY THIS - SINGLE TWEET", html)
+        self.assertIn("COPY THIS - THREAD", html)
 
     def test_both_fail_monitor_only(self):
         result = _base_result(
@@ -177,7 +177,7 @@ class TestDualCopyGeneration(unittest.TestCase):
         )
         resolved = resolve_queue(result, None)
         html = build_email_html(resolved)
-        self.assertIn("X BLOCKED — NO VALID PUBLIC COPY", html)
+        self.assertIn("X BLOCKED - NO VALID PUBLIC COPY", html)
         self.assertNotIn("COPY NOT GENERATED", html)
         self.assertEqual(resolved["operator_block"]["x"]["action"], "MONITOR")
 

@@ -37,10 +37,16 @@ def _render_active_live_events(active: dict[str, Any]) -> str:
 
 def _render_x_post_section(x: dict[str, Any]) -> str:
     if x.get("copy_blocked"):
+        if x.get("no_verified_signal"):
+            heading = "X BLOCKED - NO VERIFIED SIGNAL"
+            reason = x.get("block_reason") or "No verified signal exists in this scan."
+        else:
+            heading = "X BLOCKED - NO VALID PUBLIC COPY"
+            reason = x.get("block_reason") or "Single tweet failed final validation."
         return f"""
         <div class="op-section">
-          <div class="op-heading">X BLOCKED — NO VALID PUBLIC COPY</div>
-          <div class="op-line">Reason: {_esc(x.get('block_reason') or 'Single tweet and thread both failed final validation.')}</div>
+          <div class="op-heading">{heading}</div>
+          <div class="op-line">Reason: {_esc(reason)}</div>
           <div class="op-line">Fallback: Monitor only.</div>
         </div>
         """
@@ -52,14 +58,14 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
     if not x.get("single_blocked") and x.get("single_copy"):
         copy_blocks.append(
             f"""
-        <div class="op-line"><span class="op-key">COPY THIS — SINGLE TWEET</span></div>
+        <div class="op-line"><span class="op-key">COPY THIS - SINGLE TWEET</span></div>
         <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(x.get('single_copy')).replace(chr(10), '<br>')}</div>
         """
         )
     elif x.get("single_block_reason"):
         copy_blocks.append(
             f"""
-        <div class="op-line"><span class="op-key">SINGLE TWEET BLOCKED — FINAL COPY QUALITY FAIL</span></div>
+        <div class="op-line"><span class="op-key">SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL</span></div>
         <div class="op-line muted">Reason: {_esc(x.get('single_block_reason'))}</div>
         """
         )
@@ -67,14 +73,14 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
     if not x.get("thread_blocked") and x.get("thread_copy"):
         copy_blocks.append(
             f"""
-        <div class="op-line"><span class="op-key">COPY THIS — THREAD</span></div>
+        <div class="op-line"><span class="op-key">COPY THIS - THREAD</span></div>
         <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(x.get('thread_copy')).replace(chr(10), '<br>')}</div>
         """
         )
     elif x.get("thread_block_reason"):
         copy_blocks.append(
             f"""
-        <div class="op-line"><span class="op-key">THREAD BLOCKED — FINAL COPY QUALITY FAIL</span></div>
+        <div class="op-line"><span class="op-key">THREAD BLOCKED - FINAL COPY QUALITY FAIL</span></div>
         <div class="op-line muted">Reason: {_esc(x.get('thread_block_reason'))}</div>
         """
         )
@@ -101,10 +107,18 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
 
 def _render_linkedin_decision(li: dict[str, Any]) -> str:
     copy_block = ""
+    blocked_block = ""
     show_copy_statuses = {"Post now", "Crisis exception", "Scheduled today", "In scheduled window"}
-    if li.get("copy_this") and li.get("status") in show_copy_statuses:
+
+    if li.get("copy_blocked"):
+        blocked_block = f"""
+        <div class="op-line"><span class="op-key">LINKEDIN BLOCKED - FINAL COPY QUALITY FAIL</span></div>
+        <div class="op-line muted">Reason: {_esc(li.get('block_reason') or 'Final copy quality fail.')}</div>
+        <div class="op-line muted">Fallback: Hold until clean copy is generated.</div>
+        """
+    elif li.get("copy_this") and li.get("status") in show_copy_statuses:
         copy_block = f"""
-        <div class="op-line"><span class="op-key">COPY THIS:</span></div>
+        <div class="op-line"><span class="op-key">COPY THIS - LINKEDIN</span></div>
         <div class="post-box linkedin" style="margin-top:6px;">{_esc(li.get('copy_this', '')).replace(chr(10), '<br>')}</div>
         """
     why_no = ""
@@ -121,6 +135,7 @@ def _render_linkedin_decision(li: dict[str, Any]) -> str:
         <div class="op-line"><span class="op-key">Topic:</span> <strong>{_esc(li.get('topic'))}</strong></div>
         <div class="op-line"><span class="op-key">Why this topic:</span> {_esc(li.get('why_this_topic'))}</div>
         {copy_block}
+        {blocked_block}
         {why_no}
       </div>
     """
@@ -203,9 +218,13 @@ def build_email_html(result: dict[str, Any]) -> str:
     scan_tier = tier_meta.get("immediate_tier") or tier_meta.get("scan_tier") or result.get("scan_tier") or "ROUTINE"
     crisis_header = bool(tier_meta.get("crisis_detected"))
 
-    show_linkedin = li_block.get("copy_this") and li_block.get("status") in {
-        "Post now", "Crisis exception", "Scheduled today", "In scheduled window"
-    }
+    show_linkedin = (
+        not li_block.get("copy_blocked")
+        and li_block.get("copy_this")
+        and li_block.get("status") in {
+            "Post now", "Crisis exception", "Scheduled today", "In scheduled window"
+        }
+    )
 
     runtime = (result.get("runtime") or {}).get("runtime_label") or "unknown"
 

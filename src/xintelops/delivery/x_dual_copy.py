@@ -3,10 +3,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from xintelops.delivery.editorial import editorial_pipeline
+from xintelops.delivery.public_copy_gate import (
+    build_minimal_verified_single_tweet,
+    get_verified_signals,
+    prepare_public_copy,
+)
 from xintelops.delivery.x_copy import (
     apply_brand_footer_to_tweets,
-    apply_final_copy_safety_gate,
     fit_tweet_length,
     format_single_post,
     format_thread_for_display,
@@ -186,23 +189,25 @@ def _finalize_single(text: str, sources: list[dict[str, Any]], primary_title: st
             "passed": False,
             "text": "",
             "display": "",
-            "block_reason": "SINGLE TWEET BLOCKED — FINAL COPY QUALITY FAIL\nReason: Malformed or empty single tweet.",
+            "block_reason": "SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: Malformed or empty single tweet.",
         }
-    edited = editorial_pipeline(single, sources, primary_title=primary_title)
-    if edited.get("blocked"):
+
+    gate = prepare_public_copy(
+        single,
+        "x",
+        "single_tweet",
+        sources=sources,
+        primary_title=primary_title,
+    )
+    if not gate["passed"]:
+        reason = gate.get("block_reason") or "Final copy quality fail."
         return {
             "passed": False,
             "text": "",
             "display": "",
-            "block_reason": f"SINGLE TWEET BLOCKED — FINAL COPY QUALITY FAIL\nReason: {edited.get('block_reason', 'Editorial fail')}",
+            "block_reason": f"SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: {reason}",
         }
-    gate = apply_final_copy_safety_gate([edited["text"]])
-    if gate.get("blocked"):
-        reason = gate.get("block_reason", "Final copy quality fail.")
-        if reason.startswith("COPY BLOCKED"):
-            reason = reason.replace("COPY BLOCKED — FINAL COPY QUALITY FAIL", "SINGLE TWEET BLOCKED — FINAL COPY QUALITY FAIL", 1)
-        return {"passed": False, "text": "", "display": "", "block_reason": reason}
-    final = gate["tweets"][0]
+    final = gate["text"]
     return {"passed": True, "text": final, "display": final, "block_reason": ""}
 
 
@@ -213,8 +218,9 @@ def _finalize_thread(tweets: list[str], sources: list[dict[str, Any]], primary_t
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": "THREAD BLOCKED — FINAL COPY QUALITY FAIL\nReason: No thread tweets available.",
+            "block_reason": "THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: No thread tweets available.",
         }
+
     validation = validate_thread_tweets(tweets)
     if validation.get("blocked"):
         reason = validation.get("block_reason") or "Malformed thread."
@@ -223,28 +229,30 @@ def _finalize_thread(tweets: list[str], sources: list[dict[str, Any]], primary_t
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": f"THREAD BLOCKED — FINAL COPY QUALITY FAIL\nReason: {reason}",
+            "block_reason": f"THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: {reason}",
         }
+
     edited_tweets: list[str] = []
     for tweet in validation["tweets"]:
-        edited = editorial_pipeline(tweet, sources, primary_title=primary_title)
-        if edited.get("blocked"):
+        gate = prepare_public_copy(
+            tweet,
+            "x",
+            "thread",
+            sources=sources,
+            primary_title=primary_title,
+        )
+        if not gate["passed"]:
             return {
                 "passed": False,
                 "text": "",
                 "tweets": [],
                 "display": "",
-                "block_reason": f"THREAD BLOCKED — FINAL COPY QUALITY FAIL\nReason: {edited.get('block_reason', 'Editorial fail')}",
+                "block_reason": f"THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: {gate.get('block_reason', 'Editorial fail')}",
             }
-        edited_tweets.append(edited["text"])
+        edited_tweets.append(gate["text"])
+
     tweets_with_footer = apply_brand_footer_to_tweets(edited_tweets)
-    gate = apply_final_copy_safety_gate(tweets_with_footer)
-    if gate.get("blocked"):
-        reason = gate.get("block_reason", "Final copy quality fail.")
-        if reason.startswith("COPY BLOCKED"):
-            reason = reason.replace("COPY BLOCKED — FINAL COPY QUALITY FAIL", "THREAD BLOCKED — FINAL COPY QUALITY FAIL", 1)
-        return {"passed": False, "text": "", "tweets": [], "display": "", "block_reason": reason}
-    final_tweets = gate["tweets"]
+    final_tweets = tweets_with_footer
     display = format_thread_for_display(final_tweets, add_brand_footer=False)
     return {
         "passed": True,
@@ -255,6 +263,38 @@ def _finalize_thread(tweets: list[str], sources: list[dict[str, Any]], primary_t
     }
 
 
+def _mandatory_single_fallback(
+    result: dict[str, Any],
+    sources: list[dict[str, Any]],
+    primary_title: str,
+    signal: dict[str, Any],
+) -> dict[str, Any]:
+    """Try minimal verified tweet for selected signal, then next eligible verified signals."""
+    minimal = build_minimal_verified_single_tweet(signal, sources)
+    if minimal:
+        attempt = _finalize_single(minimal, sources, primary_title)
+        if attempt["passed"]:
+            return attempt
+
+    for alt in get_verified_signals(result):
+        alt_title = alt.get("title") or ""
+        if alt_title == primary_title:
+            continue
+        minimal = build_minimal_verified_single_tweet(alt, sources)
+        if not minimal:
+            continue
+        attempt = _finalize_single(minimal, sources, alt_title)
+        if attempt["passed"]:
+            return attempt
+
+    return {
+        "passed": False,
+        "text": "",
+        "display": "",
+        "block_reason": "SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: No clean single tweet from verified signals.",
+    }
+
+
 def build_dual_x_copy(
     result: dict[str, Any],
     sources: list[dict[str, Any]],
@@ -262,6 +302,9 @@ def build_dual_x_copy(
     requested_action: str = "",
 ) -> dict[str, Any]:
     """Build, validate, and gate single tweet and thread independently."""
+    verified_signals = get_verified_signals(result)
+    has_verified = bool(verified_signals)
+
     signal = _selected_signal(result, primary_title)
     facts = extract_signal_facts(result, primary_title)
     recommended, format_reason = recommend_x_format(signal, facts, requested_action)
@@ -280,7 +323,7 @@ def build_dual_x_copy(
         "passed": False,
         "text": "",
         "display": "",
-        "block_reason": "SINGLE TWEET BLOCKED — FINAL COPY QUALITY FAIL\nReason: No single tweet candidate.",
+        "block_reason": "SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: No single tweet candidate.",
     }
     for candidate in single_candidates:
         attempt = _finalize_single(candidate, sources, primary_title)
@@ -288,6 +331,9 @@ def build_dual_x_copy(
             single_result = attempt
             break
         single_result = attempt
+
+    if not single_result["passed"] and has_verified:
+        single_result = _mandatory_single_fallback(result, sources, primary_title, signal)
 
     thread_candidates: list[list[str]] = []
     agent_thread = parse_x_thread(result.get("x_thread"))
@@ -302,7 +348,7 @@ def build_dual_x_copy(
         "text": "",
         "tweets": [],
         "display": "",
-        "block_reason": "THREAD BLOCKED — FINAL COPY QUALITY FAIL\nReason: No thread candidate.",
+        "block_reason": "THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: No thread candidate.",
     }
     for candidate in thread_candidates:
         attempt = _finalize_thread(candidate, sources, primary_title)
@@ -331,4 +377,6 @@ def build_dual_x_copy(
         "any_passed": any_pass,
         "both_failed": not any_pass,
         "primary_draft": primary_draft,
+        "has_verified_signals": has_verified,
+        "mandatory_single_met": single_result["passed"],
     }

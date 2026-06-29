@@ -73,7 +73,7 @@ class TestXCopyInOperatorBlock(unittest.TestCase):
         result = resolve_queue(result, None)
         x = result["operator_block"]["x"]
         html = build_email_html(result)
-        self.assertIn("COPY THIS — THREAD", html)
+        self.assertIn("COPY THIS - THREAD", html)
         self.assertIn("1/ PLA Fujian", x.get("thread_copy") or x.get("draft", ""))
         self.assertFalse(x["copy_blocked"])
 
@@ -91,7 +91,7 @@ class TestXCopyInOperatorBlock(unittest.TestCase):
         draft = x.get("single_copy") or x.get("draft") or ""
         self.assertNotIn("THREAD", draft.split("\n")[0])
         self.assertIn("Fujian transit", draft)
-        self.assertIn("COPY THIS — SINGLE TWEET", build_email_html(result))
+        self.assertIn("COPY THIS - SINGLE TWEET", build_email_html(result))
 
     def test_missing_x_copy_uses_fact_fallback_or_blocks(self):
         result = _base_result(
@@ -111,10 +111,9 @@ class TestXCopyInOperatorBlock(unittest.TestCase):
         html = build_email_html(result)
         self.assertNotIn("COPY NOT GENERATED", html)
         x = result["operator_block"]["x"]
-        if x["copy_blocked"]:
-            self.assertIn("X BLOCKED — NO VALID PUBLIC COPY", html)
-        else:
-            self.assertIn("COPY THIS — SINGLE TWEET", html)
+        self.assertFalse(x["copy_blocked"])
+        self.assertIn("COPY THIS - SINGLE TWEET", html)
+        self.assertIn("Missing copy signal", x.get("single_copy") or x.get("draft") or "")
 
 
 class TestThreadNormalization(unittest.TestCase):

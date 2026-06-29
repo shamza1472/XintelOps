@@ -273,22 +273,26 @@ def resolve_queue(
         thread = dual_copy.get("thread") or {}
         single_ok = bool(single.get("passed"))
         thread_ok = bool(thread.get("passed"))
+        has_verified = bool(dual_copy.get("has_verified_signals"))
 
         if single_ok:
             result["x_post"] = single.get("text") or ""
         if thread_ok:
             result["x_thread"] = thread.get("tweets") or []
 
-        x_blocked = not (single_ok or thread_ok)
-        if x_blocked:
-            x_block_reason = (
-                "Single tweet and thread both failed final validation.\n"
-                f"{single.get('block_reason', '')}\n{thread.get('block_reason', '')}".strip()
-            )
+        if not has_verified:
+            x_blocked = True
+            x_block_reason = "No verified signal exists in this scan."
+            effective_action = "MONITOR"
+            draft = ""
+        elif not single_ok:
+            x_blocked = True
+            x_block_reason = single.get("block_reason") or "No clean single tweet from verified signals."
             effective_action = "MONITOR"
             draft = ""
         else:
-            draft = dual_copy.get("primary_draft") or ""
+            x_blocked = False
+            draft = dual_copy.get("primary_draft") or single.get("display") or ""
             effective_action = post_action
 
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
@@ -317,6 +321,7 @@ def resolve_queue(
         "thread_blocked": not thread_meta.get("passed"),
         "thread_block_reason": thread_meta.get("block_reason") or "",
         "copy_blocked": x_blocked,
+        "no_verified_signal": not dual_copy.get("has_verified_signals", False) if dual_copy else False,
         "block_reason": x_block_reason,
         "editorial_scores": result.get("_editorial_scores") or {},
         "claim_map": result.get("_claim_map") or [],

@@ -4,7 +4,11 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
 from xintelops.delivery.crisis_tier import POSTING_TIERS, classify_scan_tier
-from xintelops.delivery.editorial import editorial_pipeline
+from xintelops.delivery.public_copy_gate import (
+    build_safe_linkedin_fallback,
+    prepare_public_copy,
+    sanitize_public_copy,
+)
 from xintelops.delivery.live_events import parse_pkt_scan_time
 from xintelops.delivery.ranking import infer_niche_tier
 from xintelops.delivery.strategic_lane import compute_strategic_lane_score, has_core_region_involvement
@@ -140,20 +144,20 @@ def synthesize_linkedin_from_db(outputs: list[dict[str, Any]], horizon: str) -> 
     lines = [
         f"{topic}",
         "",
-        f"Cross-event synthesis from the last {horizon} of verified intelligence — sources separated by claim.",
+        f"Cross-event synthesis from the last {horizon} of verified intelligence. Sources separated by claim.",
         "",
         "Primary Event:",
-        f"  {primary.get('source_name', 'Source')} — {str(primary.get('internal_brief') or primary.get('what_most_people_missed') or '')[:280]}",
+        f"  {primary.get('source_name', 'Source')}: {str(primary.get('internal_brief') or primary.get('what_most_people_missed') or '')[:280]}",
     ]
     if secondary:
         lines.extend(
             [
                 "",
                 "Secondary Signal:",
-                f"  {secondary.get('source_name', 'Source')} — {str(secondary.get('internal_brief') or secondary.get('what_most_people_missed') or '')[:280]}",
+                f"  {secondary.get('source_name', 'Source')}: {str(secondary.get('internal_brief') or secondary.get('what_most_people_missed') or '')[:280]}",
                 "",
                 "Synthesis:",
-                "These signals may converge on a structural shift — verify the explicit linkage before posting.",
+                "These signals may converge on a structural shift. Verify the explicit linkage before posting.",
             ]
         )
     lines.extend(
@@ -184,6 +188,46 @@ def _build_source_package_for_signal(result: dict[str, Any], sig: dict[str, Any]
     return package[:5]
 
 
+def _gate_linkedin_copy(
+    article: str,
+    sources: list[dict[str, Any]],
+    primary_title: str,
+    topic_sig: dict[str, Any] | None,
+    secondary_signals: list[dict[str, Any]] | None = None,
+) -> tuple[str, bool, str]:
+    """Sanitize, validate, repair, fallback. Returns (text, passed, block_reason)."""
+    if not article.strip():
+        return "", False, "Empty LinkedIn draft."
+
+    gate = prepare_public_copy(
+        article,
+        "linkedin",
+        "linkedin_post",
+        sources=sources,
+        primary_title=primary_title,
+    )
+    if gate["passed"]:
+        return gate["text"], True, ""
+
+    fallback = build_safe_linkedin_fallback(
+        topic_sig or {},
+        sources,
+        secondary_signals or [],
+    )
+    fallback_gate = prepare_public_copy(
+        fallback,
+        "linkedin",
+        "linkedin_post",
+        sources=sources,
+        primary_title=primary_title,
+    )
+    if fallback_gate["passed"]:
+        return fallback_gate["text"], True, ""
+
+    reason = gate.get("block_reason") or fallback_gate.get("block_reason") or "Final copy quality fail."
+    return "", False, reason
+
+
 def build_linkedin_block(
     result: dict[str, Any],
     db_outputs: list[dict[str, Any]] | None = None,
@@ -200,7 +244,7 @@ def build_linkedin_block(
     live_score = int(top_live.get("live_event_score", 0)) if top_live else 0
 
     base = {
-        "window": "09:00–11:00 PKT",
+        "window": "09:00-11:00 PKT",
         "current_time": current_time,
         "next_window": next_window,
         "format": "LinkedIn analysis",
@@ -209,6 +253,8 @@ def build_linkedin_block(
         "topic": "",
         "copy_this": "",
         "draft_ready": False,
+        "copy_blocked": False,
+        "block_reason": "",
     }
 
     if window == "not_scheduled" and not crisis_exception:
@@ -240,13 +286,35 @@ def build_linkedin_block(
         base["why_this_topic"] = topic_reason
         base["source_package"] = _build_source_package_for_signal(result, topic_sig)
 
+    secondary = [s for s in (result.get("ranked_signals") or []) if s.get("title") != base.get("topic")][:2]
+    clean_article = ""
+    li_blocked = False
+    li_block_reason = ""
+
     if article:
-        edited = editorial_pipeline(article, base.get("source_package") or [], primary_title=base.get("topic") or "")
-        if not edited.get("blocked"):
-            article = edited["text"]
-            base["_editorial_scores"] = edited.get("scores")
-        result["linkedin_post"] = article
-        base["article_post"] = article
+        clean_article, li_passed, li_block_reason = _gate_linkedin_copy(
+            article,
+            base.get("source_package") or [],
+            base.get("topic") or "",
+            topic_sig,
+            secondary,
+        )
+        li_blocked = not li_passed
+        if li_passed:
+            result["linkedin_post"] = clean_article
+            base["article_post"] = clean_article
+            base["draft_ready"] = True
+        else:
+            result["linkedin_post"] = ""
+            base["article_post"] = ""
+            base["draft_ready"] = False
+            base["copy_blocked"] = True
+            base["block_reason"] = li_block_reason
+    else:
+        base["article_post"] = ""
+        base["draft_ready"] = False
+
+    article = clean_article
 
     if window == "before_window":
         return {
@@ -255,11 +323,26 @@ def build_linkedin_block(
             "action": "Hold until window opens",
             "content_source": topic_reason,
             "copy_this": "",
-            "draft_ready": bool(article),
-            "todays_action": "Draft ready — hold until 09:00 PKT.",
+            "draft_ready": bool(article) and not li_blocked,
+            "todays_action": "Draft ready. Hold until 09:00 PKT." if article and not li_blocked else (
+                f"LINKEDIN BLOCKED - FINAL COPY QUALITY FAIL\nReason: {li_block_reason}\nFallback: Hold until clean copy is generated."
+                if li_blocked else "No draft ready."
+            ),
         }
 
     if window == "in_window":
+        if li_blocked:
+            return {
+                **base,
+                "status": "In scheduled window",
+                "action": "Hold",
+                "content_source": topic_reason,
+                "copy_this": "",
+                "draft_ready": False,
+                "copy_blocked": True,
+                "block_reason": li_block_reason,
+                "todays_action": f"LINKEDIN BLOCKED - FINAL COPY QUALITY FAIL\nReason: {li_block_reason}\nFallback: Hold until clean copy is generated.",
+            }
         return {
             **base,
             "status": "In scheduled window",
@@ -267,10 +350,23 @@ def build_linkedin_block(
             "content_source": topic_reason,
             "copy_this": article if article and not article.startswith("No LinkedIn post today") else "",
             "draft_ready": bool(article),
-            "todays_action": "COPY THIS — post during 09:00–11:00 PKT window.",
+            "todays_action": "COPY THIS - post during 09:00-11:00 PKT window.",
         }
 
     if window == "not_scheduled" and crisis_exception:
+        if li_blocked:
+            return {
+                **base,
+                "status": "Crisis exception",
+                "action": "Hold",
+                "content_source": topic_reason,
+                "article_post": "",
+                "copy_this": "",
+                "copy_blocked": True,
+                "block_reason": li_block_reason,
+                "todays_action": f"LINKEDIN BLOCKED - FINAL COPY QUALITY FAIL\nReason: {li_block_reason}\nFallback: Hold until clean copy is generated.",
+                "exception_reason": f"Tier {immediate_tier} triggers LinkedIn exception.",
+            }
         return {
             **base,
             "status": "Crisis exception",
@@ -278,12 +374,25 @@ def build_linkedin_block(
             "content_source": topic_reason,
             "article_post": article,
             "copy_this": article if article and not article.startswith("No LinkedIn post today") else "",
-            "todays_action": f"Crisis tier {immediate_tier} — post now despite non-scheduled day.",
+            "todays_action": f"Crisis tier {immediate_tier}. Post now despite non-scheduled day.",
             "exception_reason": f"Tier {immediate_tier} triggers LinkedIn exception.",
         }
 
     # after_window on scheduled day
     if window == "after_window" and crisis_exception:
+        if li_blocked:
+            return {
+                **base,
+                "status": "Crisis exception",
+                "action": "Hold",
+                "content_source": topic_reason,
+                "article_post": "",
+                "copy_this": "",
+                "copy_blocked": True,
+                "block_reason": li_block_reason,
+                "todays_action": f"LINKEDIN BLOCKED - FINAL COPY QUALITY FAIL\nReason: {li_block_reason}\nFallback: Hold until clean copy is generated.",
+                "exception_reason": f"Tier {immediate_tier} triggers LinkedIn exception.",
+            }
         return {
             **base,
             "status": "Crisis exception",
@@ -291,7 +400,7 @@ def build_linkedin_block(
             "content_source": topic_reason,
             "article_post": article,
             "copy_this": article if article and not article.startswith("No LinkedIn post today") else "",
-            "todays_action": f"Crisis tier {immediate_tier} — post now even though window passed.",
+            "todays_action": f"Crisis tier {immediate_tier}. Post now even though window passed.",
             "exception_reason": f"Tier {immediate_tier} triggers LinkedIn exception.",
         }
 

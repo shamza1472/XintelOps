@@ -149,7 +149,7 @@ class TestEmailAndDbGating(unittest.TestCase):
         if x.get("copy_blocked"):
             self.assertIn("X BLOCKED", html)
         else:
-            self.assertTrue("COPY THIS — SINGLE TWEET" in html or "COPY THIS — THREAD" in html)
+            self.assertTrue("COPY THIS - SINGLE TWEET" in html or "COPY THIS - THREAD" in html)
 
     def test_active_now_draft_empty_when_both_formats_fail(self):
         result = resolve_queue(
