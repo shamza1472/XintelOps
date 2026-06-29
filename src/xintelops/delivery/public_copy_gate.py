@@ -163,6 +163,23 @@ _STRONG_GEO_ENTITIES = frozenset({
 
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
 
+_INCOMPLETE_ENDING_FRAGMENTS = (
+    "worth tracking whether.",
+    "worth watching whether.",
+    "worth tracking if.",
+    "worth watching if.",
+    "track whether.",
+    "watch whether.",
+    "the question is whether.",
+    "it remains to be seen whether.",
+    "worth.",
+)
+
+_DANGLING_FINAL_WORDS = frozenset({
+    "worth", "until", "without", "before", "after", "while", "because", "if", "whether",
+    "track", "watch", "the", "a", "an", "to", "for", "with", "by", "on", "at", "in", "of", "and", "or",
+})
+
 
 class GateResult(TypedDict):
     text: str
@@ -172,6 +189,96 @@ class GateResult(TypedDict):
     violations: list[str]
     platform: str
     format_type: str
+
+
+def audit_copy_completeness(text: str) -> list[str]:
+    """Detect incomplete fragments and dangling endings in public copy."""
+    t = str(text or "").strip()
+    if not t:
+        return ["empty copy"]
+
+    violations: list[str] = []
+    lower = t.lower().rstrip()
+
+    for frag in _INCOMPLETE_ENDING_FRAGMENTS:
+        if lower.endswith(frag):
+            violations.append(f"incomplete ending: {frag}")
+
+    if re.search(r"\bworth tracking whether\.?$", lower):
+        violations.append("incomplete: worth tracking whether")
+    if re.search(r"\bworth watching whether\.?$", lower):
+        violations.append("incomplete: worth watching whether")
+    if re.search(r"\bworth tracking if\.?$", lower):
+        violations.append("incomplete: worth tracking if")
+    if re.search(r"\bworth watching if\.?$", lower):
+        violations.append("incomplete: worth watching if")
+    if re.search(r"\bthe question is whether\.?$", lower):
+        violations.append("incomplete: the question is whether")
+    if re.search(r"\bit remains to be seen whether\.?$", lower):
+        violations.append("incomplete: it remains to be seen whether")
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", t) if s.strip()]
+    if sentences:
+        last = sentences[-1]
+        last_body = last.rstrip(".!?").strip()
+        last_words = last_body.split()
+        if last_words:
+            last_word = last_words[-1].lower()
+            if last.endswith("."):
+                if len(last_words) <= 2:
+                    violations.append("incomplete final sentence: fewer than 3 words")
+                elif len(last_words) < 4 and last_word in _DANGLING_FINAL_WORDS:
+                    violations.append("incomplete final sentence: fewer than 4 words with dangling ending")
+                elif last_word in _DANGLING_FINAL_WORDS:
+                    if last_word == "whether" and len(last_words) >= 5:
+                        pass
+                    else:
+                        violations.append(f"incomplete ending: dangling {last_word}")
+
+    return violations
+
+
+def repair_incomplete_public_copy(text: str) -> str:
+    """Remove incomplete trailing sentence(s) and return cleaned copy."""
+    t = sanitize_public_copy(text)
+    if not t:
+        return ""
+    if not audit_copy_completeness(t):
+        return t
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", t) if s.strip()]
+    while sentences:
+        candidate = " ".join(sentences)
+        if not audit_copy_completeness(candidate):
+            return candidate
+        sentences.pop()
+    return ""
+
+
+def _violations_are_completeness_only(violations: list[str]) -> bool:
+    if not violations:
+        return False
+    completeness_markers = ("incomplete", "truncated tweet", "truncated", "dangling")
+    return all(any(marker in v.lower() for marker in completeness_markers) for v in violations)
+
+
+def resolve_effective_format_recommendation(
+    recommended: str,
+    format_reason: str,
+    *,
+    single_passed: bool,
+    thread_passed: bool,
+) -> tuple[str, str]:
+    """Override format recommendation when a format is blocked."""
+    if single_passed and not thread_passed:
+        return "SINGLE TWEET", "Thread failed final validation; single tweet passed."
+    if thread_passed and not single_passed:
+        return "THREAD", "Single tweet failed final validation; thread passed."
+    if thread_passed and single_passed:
+        if recommended == "THREAD":
+            return "THREAD", format_reason
+        return "SINGLE TWEET", format_reason
+    return recommended, format_reason
 
 
 def _contains_global_banned(text: str) -> str | None:
@@ -548,6 +655,10 @@ def validate_public_copy(
             if v not in violations:
                 violations.append(v)
 
+    for v in audit_copy_completeness(check_body):
+        if v not in violations:
+            violations.append(v)
+
     passed = not violations and bool(check_body.strip())
     reason = violations[0] if violations else ""
     return {
@@ -580,6 +691,19 @@ def prepare_public_copy(
     )
     if first["passed"]:
         return first
+
+    if _violations_are_completeness_only(first["violations"]):
+        repaired = repair_incomplete_public_copy(sanitized)
+        if repaired and repaired != sanitized:
+            completeness_retry = validate_public_copy(
+                repaired,
+                platform,
+                format_type,
+                sources=sources,
+                primary_title=primary_title,
+            )
+            if completeness_retry["passed"]:
+                return completeness_retry
 
     repaired = sanitize_public_copy(sanitized)
     if repaired != sanitized:
@@ -660,7 +784,8 @@ def build_minimal_verified_single_tweet(
         title_lower = title.lower()
         if "iran" in title_lower and ("us" in title_lower or "washington" in title_lower or "stand down" in title_lower):
             parts.append(
-                "The key issue is whether commercial transit and Gulf basing risk ease before those talks."
+                "The key issue is whether the pause changes transit risk, Gulf basing posture, "
+                "and insurance pricing before Tuesday's Doha talks."
             )
         elif region.lower() in {"gulf", "middle east"} or "hormuz" in title_lower:
             parts.append(

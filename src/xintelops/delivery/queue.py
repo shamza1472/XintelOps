@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from xintelops.delivery.editorial import editorial_pipeline
+from xintelops.delivery.public_copy_gate import (
+    resolve_effective_format_recommendation,
+)
 from xintelops.delivery.ranking import compute_rank_score
 from xintelops.delivery.source_roles import build_role_separated_package
 from xintelops.delivery.x_dual_copy import build_dual_x_copy
@@ -87,6 +90,44 @@ def _format_draft(result: dict[str, Any], action: str) -> str:
     result["_editorial_scores"] = edited.get("scores")
     result["_claim_map"] = edited.get("claims")
     return final_gate["tweets"][0]
+
+
+def _active_now_format_label(
+    *,
+    x_blocked: bool,
+    single_ok: bool,
+    thread_ok: bool,
+    recommended_format: str,
+) -> str:
+    if x_blocked or (not single_ok and not thread_ok):
+        return "MONITOR_ONLY"
+    if recommended_format == "THREAD" and thread_ok:
+        return "THREAD"
+    if single_ok:
+        return "SINGLE_TWEET"
+    if thread_ok:
+        return "THREAD"
+    return "MONITOR_ONLY"
+
+
+def _active_now_draft(
+    *,
+    x_blocked: bool,
+    single_ok: bool,
+    thread_ok: bool,
+    recommended_format: str,
+    single: dict[str, Any],
+    thread: dict[str, Any],
+) -> str:
+    if x_blocked:
+        return ""
+    if recommended_format == "THREAD" and thread_ok:
+        return thread.get("display") or ""
+    if single_ok:
+        return single.get("display") or single.get("text") or ""
+    if thread_ok:
+        return thread.get("display") or ""
+    return ""
 
 
 def _format_label(action: str) -> str:
@@ -275,25 +316,51 @@ def resolve_queue(
         thread_ok = bool(thread.get("passed"))
         has_verified = bool(dual_copy.get("has_verified_signals"))
 
+        effective_format, effective_format_reason = resolve_effective_format_recommendation(
+            dual_copy.get("original_recommended_format") or dual_copy.get("recommended_format") or "",
+            dual_copy.get("original_format_reason") or dual_copy.get("format_reason") or "",
+            single_passed=single_ok,
+            thread_passed=thread_ok,
+        )
+        dual_copy["recommended_format"] = effective_format
+        dual_copy["format_reason"] = effective_format_reason
+
         if single_ok:
             result["x_post"] = single.get("text") or ""
+        else:
+            result["x_post"] = ""
+
         if thread_ok:
             result["x_thread"] = thread.get("tweets") or []
+        else:
+            result["x_thread"] = []
 
         if not has_verified:
             x_blocked = True
             x_block_reason = "No verified signal exists in this scan."
             effective_action = "MONITOR"
             draft = ""
-        elif not single_ok:
+        elif not single_ok and not thread_ok:
             x_blocked = True
-            x_block_reason = single.get("block_reason") or "No clean single tweet from verified signals."
+            x_block_reason = single.get("block_reason") or thread.get("block_reason") or "No valid public copy."
             effective_action = "MONITOR"
             draft = ""
-        else:
+        elif single_ok or thread_ok:
             x_blocked = False
-            draft = dual_copy.get("primary_draft") or single.get("display") or ""
+            draft = _active_now_draft(
+                x_blocked=False,
+                single_ok=single_ok,
+                thread_ok=thread_ok,
+                recommended_format=effective_format,
+                single=single,
+                thread=thread,
+            )
             effective_action = post_action
+        else:
+            x_blocked = True
+            x_block_reason = "No valid public copy."
+            effective_action = "MONITOR"
+            draft = ""
 
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
     active_expires = scan_time + timedelta(hours=ACTIVE_EXPIRES_HOURS)
@@ -354,7 +421,12 @@ def resolve_queue(
     result["operator_block"] = operator_block
     result["content_queue"] = {
         "active_now_signal": post_title,
-        "active_now_format": _format_label(effective_action) if not x_blocked else "BLOCKED",
+        "active_now_format": _active_now_format_label(
+            x_blocked=x_blocked,
+            single_ok=bool(single_meta.get("passed")),
+            thread_ok=bool(thread_meta.get("passed")),
+            recommended_format=dual_copy.get("recommended_format", "") if dual_copy else "",
+        ),
         "active_now_draft": draft,
         "active_now_deadline": active_deadline.isoformat(),
         "active_now_expires_at": active_expires.isoformat(),

@@ -7,9 +7,12 @@ from xintelops.delivery.public_copy_gate import (
     build_minimal_verified_single_tweet,
     get_verified_signals,
     prepare_public_copy,
+    repair_incomplete_public_copy,
+    resolve_effective_format_recommendation,
     selected_signal_has_verified_source,
     validate_copy_signal_binding,
     _foreign_topic_violations,
+    _violations_are_completeness_only,
 )
 from xintelops.delivery.x_copy import (
     apply_brand_footer_to_tweets,
@@ -244,6 +247,16 @@ def _finalize_single(
         sources=sources,
         primary_title=primary_title,
     )
+    if not gate["passed"] and _violations_are_completeness_only(gate.get("violations") or []):
+        repaired = repair_incomplete_public_copy(single)
+        if repaired:
+            gate = prepare_public_copy(
+                repaired,
+                "x",
+                "single_tweet",
+                sources=sources,
+                primary_title=primary_title,
+            )
     if not gate["passed"]:
         reason = gate.get("block_reason") or "Final copy quality fail."
         return _empty_single_result(f"SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: {reason}")
@@ -487,9 +500,16 @@ def build_dual_x_copy(
         thread_result = attempt
 
     any_pass = single_result["passed"] or thread_result["passed"]
-    if recommended == "SINGLE TWEET" and single_result["passed"]:
+    effective_format, effective_format_reason = resolve_effective_format_recommendation(
+        recommended,
+        format_reason,
+        single_passed=single_result["passed"],
+        thread_passed=thread_result["passed"],
+    )
+
+    if effective_format == "SINGLE TWEET" and single_result["passed"]:
         primary_draft = single_result["display"]
-    elif recommended == "THREAD" and thread_result["passed"]:
+    elif effective_format == "THREAD" and thread_result["passed"]:
         primary_draft = thread_result["display"]
     elif single_result["passed"]:
         primary_draft = single_result["display"]
@@ -499,8 +519,10 @@ def build_dual_x_copy(
         primary_draft = ""
 
     return {
-        "recommended_format": recommended,
-        "format_reason": format_reason,
+        "recommended_format": effective_format,
+        "format_reason": effective_format_reason,
+        "original_recommended_format": recommended,
+        "original_format_reason": format_reason,
         "single": single_result,
         "thread": thread_result,
         "any_passed": any_pass,
