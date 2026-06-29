@@ -139,6 +139,30 @@ _PLUS_LIST_PATTERN = re.compile(
     re.I,
 )
 
+_THREAD_QUALITY_BANNED = (
+    "corridor-defining event",
+    "corridor defining event",
+    "available reporting is still developing on secondary details",
+    "available reporting is still developing",
+)
+
+_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "at", "for", "with", "after", "before",
+    "from", "by", "as", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "do", "does", "did", "will", "may", "might", "must", "shall", "should", "can", "could",
+    "would", "that", "this", "these", "those", "it", "its", "their", "them", "they", "we", "us",
+    "lead", "lead", "talks", "talk", "weekend", "exchange", "strikes", "strike", "agree", "agreed",
+})
+
+_STRONG_GEO_ENTITIES = frozenset({
+    "pakistan", "afghanistan", "durand", "iran", "tehran", "hormuz", "doha", "kushner", "witkoff",
+    "israel", "gaza", "ukraine", "russia", "china", "taiwan", "india", "syria", "yemen", "houthi",
+    "lebanon", "kuwait", "bahrain", "saudi", "qatar", "egypt", "turkey", "un", "centcom", "nato",
+    "washington", "islamabad", "kabul", "taiwan", "black", "panama", "ukraine", "gaza",
+})
+
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
+
 
 class GateResult(TypedDict):
     text: str
@@ -156,6 +180,209 @@ def _contains_global_banned(text: str) -> str | None:
         if phrase in lower:
             return phrase
     return None
+
+
+def _contains_thread_quality_banned(text: str) -> str | None:
+    lower = text.lower()
+    for phrase in _THREAD_QUALITY_BANNED:
+        if phrase in lower:
+            return phrase
+    return None
+
+
+def _title_tokens(title: str) -> set[str]:
+    tokens: set[str] = set()
+    for word in re.findall(r"[A-Za-z]{3,}", str(title or "")):
+        w = word.lower()
+        if w not in _STOPWORDS:
+            tokens.add(w)
+    lower = str(title or "").lower()
+    for entity in _STRONG_GEO_ENTITIES:
+        if entity in lower:
+            tokens.add(entity)
+    return tokens
+
+
+def extract_binding_anchors(signal: dict[str, Any]) -> dict[str, Any]:
+    """Extract actors, locations, and title anchors for copy binding checks."""
+    title = str(signal.get("title") or "").strip()
+    tokens = _title_tokens(title)
+
+    for item in signal.get("actors") or signal.get("entities") or []:
+        for part in re.findall(r"[A-Za-z]{2,}", str(item)):
+            w = part.lower()
+            if w not in _STOPWORDS:
+                tokens.add(w)
+
+    region = str(signal.get("region") or "").strip().lower()
+    domain = str(signal.get("domain") or "").strip().lower()
+    if region:
+        tokens.add(region)
+    if domain:
+        tokens.add(domain)
+
+    geo = {t for t in tokens if t in _STRONG_GEO_ENTITIES}
+    return {
+        "title": title,
+        "tokens": tokens,
+        "geo": geo,
+        "region": region,
+        "domain": domain,
+    }
+
+
+def _anchor_hits(copy_text: str, anchors: dict[str, Any]) -> set[str]:
+    lower = str(copy_text or "").lower()
+    hits: set[str] = set()
+    for token in anchors.get("tokens") or set():
+        if re.search(rf"\b{re.escape(token)}", lower):
+            hits.add(token)
+    return hits
+
+
+def _foreign_topic_violations(
+    copy_text: str,
+    selected_signal: dict[str, Any],
+    other_signals: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    violations: list[str] = []
+    body = sanitize_public_copy(copy_text)
+    copy_lower = body.lower()
+    selected_title_lower = str(selected_signal.get("title") or "").lower()
+    selected_anchors = extract_binding_anchors(selected_signal)
+
+    selected_is_us_iran = (
+        any(m in selected_title_lower for m in ("iran", "hormuz", "doha", "tehran"))
+        and any(m in selected_title_lower for m in ("stand down", "stand-down", "us ", "u.s.", "washington", "iran"))
+    )
+    copy_is_south_asia = any(m in copy_lower for m in ("pakistan", "afghanistan", "durand", "islamabad", "kabul"))
+    if selected_is_us_iran and copy_is_south_asia and not any(m in selected_title_lower for m in ("pakistan", "afghanistan")):
+        violations.append("copy describes Pakistan/Afghanistan but selected signal is US-Iran")
+
+    geo_hits = {t for t in _anchor_hits(body, selected_anchors) if t in _STRONG_GEO_ENTITIES}
+    for other in other_signals or []:
+        other_title = str(other.get("title") or "")
+        if other_title == str(selected_signal.get("title") or ""):
+            continue
+        other_anchors = extract_binding_anchors(other)
+        other_tokens = other_anchors.get("tokens") or set()
+        distinctive = (other_anchors.get("geo") or set()) | other_tokens
+        selected_tokens = selected_anchors.get("tokens") or set()
+        copy_distinctive_hits = {
+            t for t in distinctive
+            if t in copy_lower and t in _STRONG_GEO_ENTITIES and t not in selected_tokens
+        }
+        if copy_distinctive_hits and not (geo_hits & (selected_anchors.get("geo") or set())):
+            violations.append(
+                f"copy matches different signal topic ({', '.join(sorted(copy_distinctive_hits))})"
+            )
+    return violations
+
+
+def validate_copy_signal_binding(
+    copy_text: str,
+    selected_signal: dict[str, Any],
+    source_package: list[dict[str, Any]] | None = None,
+    *,
+    allowed_fallback_signal: dict[str, Any] | None = None,
+    other_signals: list[dict[str, Any]] | None = None,
+    thread_mode: bool = False,
+) -> GateResult:
+    """Ensure public copy describes the selected active_now signal, not another topic."""
+    source_package = source_package or []
+    other_signals = other_signals or []
+    body = sanitize_public_copy(copy_text)
+    target_signal = allowed_fallback_signal or selected_signal
+    target_anchors = extract_binding_anchors(target_signal)
+    selected_anchors = extract_binding_anchors(selected_signal)
+    hits = _anchor_hits(body, target_anchors)
+    selected_hits = _anchor_hits(body, selected_anchors)
+
+    violations: list[str] = []
+    if not allowed_fallback_signal:
+        violations.extend(_foreign_topic_violations(body, selected_signal, other_signals))
+    else:
+        violations.extend(_foreign_topic_violations(body, target_signal, other_signals))
+
+    if thread_mode:
+        passed = not violations
+        reason = violations[0] if violations else ""
+        return {
+            "text": body if passed else "",
+            "passed": passed,
+            "blocked": not passed,
+            "block_reason": reason,
+            "violations": violations,
+            "platform": "x",
+            "format_type": "thread",
+        }
+
+    copy_lower = body.lower()
+    geo_hits = {t for t in hits if t in _STRONG_GEO_ENTITIES}
+    target_geo = target_anchors.get("geo") or set()
+
+    min_hits = 2 if len(target_anchors.get("tokens") or []) >= 4 else 1
+    geo_overlap = geo_hits & (target_geo | selected_anchors.get("geo") or set())
+    effective_hits = len(hits | geo_overlap)
+    foreign_geo = geo_hits - (target_geo | selected_anchors.get("geo") or set())
+    if foreign_geo and not geo_overlap:
+        violations.append(
+            f"copy references foreign actors/locations ({', '.join(sorted(foreign_geo))}) not in selected signal"
+        )
+    if allowed_fallback_signal:
+        if effective_hits < min_hits:
+            violations.append(
+                f"copy does not match declared fallback signal: {target_signal.get('title', '')}"
+            )
+    elif effective_hits < min_hits and not geo_overlap:
+        violations.append(
+            f"copy does not match selected signal: {selected_signal.get('title', '')}"
+        )
+
+    if (
+        source_package
+        and not allowed_fallback_signal
+        and selected_signal.get("url")
+        and effective_hits < min_hits
+    ):
+        url = str(selected_signal.get("url") or "")
+        bound = any(str(item.get("url") or "") == url for item in source_package)
+        title_key = str(selected_signal.get("title") or "").lower()[:40]
+        if not bound and title_key:
+            bound = any(
+                title_key[:20] in str(item.get("why_supports") or "").lower()
+                for item in source_package
+            )
+        if not bound:
+            violations.append("source package does not match selected signal")
+
+    passed = not violations
+    reason = violations[0] if violations else ""
+    return {
+        "text": body if passed else "",
+        "passed": passed,
+        "blocked": not passed,
+        "block_reason": reason,
+        "violations": violations,
+        "platform": "x",
+        "format_type": "single_tweet",
+    }
+
+
+def selected_signal_has_verified_source(
+    signal: dict[str, Any],
+    source_package: list[dict[str, Any]] | None = None,
+) -> bool:
+    if signal.get("url") or signal.get("verified_facts"):
+        return True
+    title = str(signal.get("title") or "").lower()
+    for item in source_package or []:
+        why = str(item.get("why_supports") or "").lower()
+        if title[:30] and title[:30] in why:
+            return True
+        if str(item.get("url") or "") == str(signal.get("url") or ""):
+            return True
+    return False
 
 
 def _rewrite_plus_lists(text: str) -> str:
@@ -190,6 +417,7 @@ def sanitize_public_copy(text: str) -> str:
     out = _HASHTAG_PATTERN.sub("", out)
     out = re.sub(_COMPRESSED_LIST_PATTERN, "", out)
     out = _INTERNAL_LABEL_PATTERN.sub("", out)
+    out = _SPACE_BEFORE_PUNCT.sub(r"\1", out)
     out = _cleanup_orphan_punctuation(out)
     out = _capitalize_sentence_starts(out)
     out = re.sub(r"\s{2,}", " ", out)
@@ -251,6 +479,13 @@ def validate_public_copy(
     banned = _contains_global_banned(body)
     if banned:
         violations.append(f"banned phrase: {banned}")
+
+    if format_type == "thread":
+        thread_banned = _contains_thread_quality_banned(body)
+        if thread_banned:
+            violations.append(f"thread quality: {thread_banned}")
+        if _SPACE_BEFORE_PUNCT.search(str(text or "")):
+            violations.append("comma spacing error")
 
     if _EM_DASH_PATTERN.search(body):
         violations.append("unsafe symbol: em dash")
@@ -422,7 +657,17 @@ def build_minimal_verified_single_tweet(
         parts.append(imp)
 
     if confidence in {"", "LOW", "MEDIUM"}:
-        parts.append("Treat secondary details as provisional until follow-on confirmation.")
+        title_lower = title.lower()
+        if "iran" in title_lower and ("us" in title_lower or "washington" in title_lower or "stand down" in title_lower):
+            parts.append(
+                "The key issue is whether commercial transit and Gulf basing risk ease before those talks."
+            )
+        elif region.lower() in {"gulf", "middle east"} or "hormuz" in title_lower:
+            parts.append(
+                "The key issue is whether shipping and basing risk ease before follow-on diplomacy."
+            )
+        else:
+            parts.append("Some details remain unclear until follow-on reporting confirms the timeline.")
     elif region:
         parts.append(f"Worth tracking follow-on reporting from {region}.")
 

@@ -55,9 +55,18 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
     recommended = x.get("recommended_format") or ""
     format_reason = x.get("format_reason") or ""
 
+    fallback_notice = ""
+    if x.get("fallback_used") and x.get("fallback_signal"):
+        fallback_notice = f"""
+        <div class="op-line muted">Selected signal failed copy validation.</div>
+        <div class="op-line muted">Fallback tweet generated from: {_esc(x.get('fallback_signal'))}</div>
+        <div class="op-line muted">Reason: {_esc(x.get('fallback_reason') or 'Selected signal failed copy validation.')}</div>
+        """
+
     if not x.get("single_blocked") and x.get("single_copy"):
         copy_blocks.append(
             f"""
+        {fallback_notice}
         <div class="op-line"><span class="op-key">COPY THIS - SINGLE TWEET</span></div>
         <div class="post-box" style="margin-top:6px;background:#1a2332;color:#e8edf2;border-left:3px solid #4da6ff;">{_esc(x.get('single_copy')).replace(chr(10), '<br>')}</div>
         """

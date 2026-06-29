@@ -323,6 +323,10 @@ def resolve_queue(
         "copy_blocked": x_blocked,
         "no_verified_signal": not dual_copy.get("has_verified_signals", False) if dual_copy else False,
         "block_reason": x_block_reason,
+        "fallback_used": dual_copy.get("fallback_used", False),
+        "fallback_signal": dual_copy.get("fallback_signal", ""),
+        "fallback_reason": dual_copy.get("fallback_reason", ""),
+        "bound_signal_title": dual_copy.get("bound_signal_title", post_title),
         "editorial_scores": result.get("_editorial_scores") or {},
         "claim_map": result.get("_claim_map") or [],
     }

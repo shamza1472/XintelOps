@@ -186,9 +186,11 @@ class TestMandatorySingleTweetFallback(unittest.TestCase):
         self.assertNotIn("you're late", tweet.lower())
         self.assertNotIn("the signal", tweet.lower())
 
-    def test_minimal_tweet_adds_provisional_line_for_medium_confidence(self):
+    def test_minimal_tweet_adds_cautious_line_for_medium_confidence(self):
         tweet = build_minimal_verified_single_tweet(_signal(confidence="MEDIUM"), SOURCES)
-        self.assertIn("provisional", tweet.lower())
+        self.assertTrue(
+            "issue" in tweet.lower() or "unclear" in tweet.lower() or "follow-on" in tweet.lower()
+        )
 
 
 class TestLinkedInGate(unittest.TestCase):
