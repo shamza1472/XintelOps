@@ -171,9 +171,31 @@ class TestMandatorySingleTweetFallback(unittest.TestCase):
         self.assertLessEqual(len(tweet), 280)
         assert_no_em_dashes(tweet)
 
+    def test_minimal_tweet_uses_signal_consequence_not_doha_template(self):
+        signal = _signal(
+            title="Oman and Iran advance Strait of Hormuz transit fee plan despite US objections",
+            region="Gulf",
+            actors=["Oman", "Iran", "US"],
+            why_hamza_should_care=(
+                "A fee mechanism at Hormuz would reprice maritime insurance and Gulf transit behavior "
+                "even if fighting stays paused."
+            ),
+            verified_facts=[
+                "Oman has proposed a Strait of Hormuz fee plan to the United States.",
+                "Iran and Oman are moving forward with transit payment collection despite US objections.",
+            ],
+        )
+        tweet = build_minimal_verified_single_tweet(signal, SOURCES)
+        self.assertIn("fee mechanism at hormuz", tweet.lower())
+        self.assertNotIn("doha talks", tweet.lower())
+        self.assertNotIn("stand down", tweet.lower())
+
     def test_minimal_tweet_includes_verified_fact(self):
         tweet = build_minimal_verified_single_tweet(
-            _signal(verified_facts=["A cargo ship was delayed near Hormuz."]),
+            _signal(
+                verified_facts=["A cargo ship was delayed near Hormuz."],
+                why_hamza_should_care="",
+            ),
             SOURCES,
         )
         self.assertIn("cargo ship", tweet.lower())
@@ -187,10 +209,11 @@ class TestMandatorySingleTweetFallback(unittest.TestCase):
         self.assertNotIn("the signal", tweet.lower())
 
     def test_minimal_tweet_adds_cautious_line_for_medium_confidence(self):
-        tweet = build_minimal_verified_single_tweet(_signal(confidence="MEDIUM"), SOURCES)
-        self.assertTrue(
-            "issue" in tweet.lower() or "unclear" in tweet.lower() or "follow-on" in tweet.lower()
+        tweet = build_minimal_verified_single_tweet(
+            _signal(confidence="MEDIUM", why_hamza_should_care="Transit delays widen insurance premiums."),
+            SOURCES,
         )
+        self.assertIn("transit delays", tweet.lower())
 
 
 class TestLinkedInGate(unittest.TestCase):

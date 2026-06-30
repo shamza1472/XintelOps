@@ -218,8 +218,17 @@ def build_thread_from_facts(facts: dict[str, Any]) -> list[str]:
     return cleaned[:6]
 
 
-def _format_block_reason(format_label: str, reason: str) -> str:
-    clean = format_operator_block_reason(reason, format_label=format_label)
+def _format_block_reason(
+    format_label: str,
+    reason: str,
+    *,
+    selected_signal: dict[str, Any] | None = None,
+) -> str:
+    clean = format_operator_block_reason(
+        reason,
+        format_label=format_label,
+        selected_signal=selected_signal,
+    )
     return f"{format_label.upper()} BLOCKED - FINAL COPY QUALITY FAIL\nReason: {clean}"
 
 
@@ -279,7 +288,9 @@ def _finalize_single(
             )
     if not gate["passed"]:
         reason = gate.get("block_reason") or "Final copy quality fail."
-        return _empty_single_result(_format_block_reason("Single tweet", reason))
+        return _empty_single_result(
+            _format_block_reason("Single tweet", reason, selected_signal=selected_signal)
+        )
 
     binding = validate_copy_signal_binding(
         gate["text"],
@@ -290,7 +301,9 @@ def _finalize_single(
     )
     if not binding["passed"]:
         return _empty_single_result(
-            _format_block_reason("Single tweet", binding.get("block_reason", "Signal binding fail"))
+            _format_block_reason(
+                "Single tweet", binding.get("block_reason", "Signal binding fail"), selected_signal=selected_signal
+            )
         )
 
     final = gate["text"]
@@ -320,7 +333,9 @@ def _finalize_thread(
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": _format_block_reason("Thread", "No thread tweets available."),
+            "block_reason": _format_block_reason(
+                "Thread", "No thread tweets available.", selected_signal=selected_signal
+            ),
         }
 
     validation = validate_thread_tweets(tweets)
@@ -330,7 +345,11 @@ def _finalize_thread(
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": _format_block_reason("Thread", validation.get("block_reason") or "Malformed thread."),
+            "block_reason": _format_block_reason(
+                "Thread",
+                validation.get("block_reason") or "Malformed thread.",
+                selected_signal=selected_signal,
+            ),
         }
 
     edited_tweets: list[str] = []
@@ -348,7 +367,9 @@ def _finalize_thread(
                 "text": "",
                 "tweets": [],
                 "display": "",
-                "block_reason": _format_block_reason("Thread", gate.get("block_reason", "Editorial fail")),
+                "block_reason": _format_block_reason(
+                    "Thread", gate.get("block_reason", "Editorial fail"), selected_signal=selected_signal
+                ),
             }
         binding = validate_copy_signal_binding(
             gate["text"],
@@ -363,7 +384,11 @@ def _finalize_thread(
                 "text": "",
                 "tweets": [],
                 "display": "",
-                "block_reason": _format_block_reason("Thread", binding.get("block_reason", "Signal binding fail")),
+                "block_reason": _format_block_reason(
+                    "Thread",
+                    binding.get("block_reason", "Signal binding fail"),
+                    selected_signal=selected_signal,
+                ),
             }
         edited_tweets.append(gate["text"])
 
@@ -379,7 +404,11 @@ def _finalize_thread(
             "text": "",
             "tweets": [],
             "display": "",
-            "block_reason": _format_block_reason("Thread", combined_binding.get("block_reason", "Signal binding fail")),
+            "block_reason": _format_block_reason(
+                "Thread",
+                combined_binding.get("block_reason", "Signal binding fail"),
+                selected_signal=selected_signal,
+            ),
         }
 
     tweets_with_footer = apply_brand_footer_to_tweets(edited_tweets)

@@ -8,12 +8,13 @@ from xintelops.delivery.public_copy_gate import (
     assert_no_em_dashes,
     build_minimal_verified_single_tweet,
     extract_binding_anchors,
+    format_operator_block_reason,
     prepare_public_copy,
     validate_copy_signal_binding,
     validate_public_copy,
 )
 from xintelops.delivery.queue import resolve_queue
-from xintelops.delivery.x_dual_copy import build_dual_x_copy
+from xintelops.delivery.x_dual_copy import build_dual_x_copy, _format_block_reason
 
 US_IRAN_TITLE = (
     "US and Iran agree to stand down after weekend exchange of strikes; "
@@ -112,6 +113,35 @@ class TestBindingValidator(unittest.TestCase):
             other_signals=[PAKISTAN_SIGNAL],
         )
         self.assertFalse(result["passed"])
+
+
+class TestBlockReasonLabels(unittest.TestCase):
+    def test_thread_block_reason_uses_selected_signal_actors(self):
+        oman_signal = {
+            "title": "Oman and Iran advance Strait of Hormuz transit fee plan despite US objections",
+            "actors": ["Oman", "Iran", "US"],
+            "region": "Gulf",
+        }
+        reason = format_operator_block_reason(
+            "copy describes Pakistan/Afghanistan but selected signal is Oman/Iran",
+            selected_signal=oman_signal,
+        )
+        self.assertIn("Oman/Iran", reason)
+        self.assertNotIn("US/Iran", reason)
+
+    def test_dual_copy_thread_block_reason_uses_selected_actors(self):
+        oman_signal = {
+            "title": "Oman and Iran advance Strait of Hormuz transit fee plan despite US objections",
+            "actors": ["Oman", "Iran", "US"],
+            "region": "Gulf",
+        }
+        reason = _format_block_reason(
+            "Thread",
+            "copy describes Pakistan/Afghanistan but selected signal is Oman/Iran",
+            selected_signal=oman_signal,
+        )
+        self.assertIn("Oman/Iran", reason)
+        self.assertNotIn("US/Iran", reason)
 
 
 class TestScan2337Regression(unittest.TestCase):

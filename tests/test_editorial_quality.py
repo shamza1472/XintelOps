@@ -115,7 +115,8 @@ class TestEditorialQualityGate(unittest.TestCase):
         tweet = build_minimal_verified_single_tweet(US_IRAN_SIGNAL, SOURCES)
         gate = prepare_public_copy(tweet, "x", "single_tweet", sources=SOURCES, primary_title=US_IRAN_TITLE)
         self.assertTrue(gate["passed"])
-        self.assertIn("The issue now is whether", gate["text"])
+        self.assertIn("Hormuz", gate["text"])
+        self.assertIn("Doha talks", gate["text"])
 
 
 class TestScan0058Regression(unittest.TestCase):
