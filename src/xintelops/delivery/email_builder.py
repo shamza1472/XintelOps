@@ -53,8 +53,6 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
         """
 
     copy_blocks: list[str] = []
-    recommended = x.get("recommended_format") or ""
-    format_reason = x.get("format_reason") or ""
 
     internal_notes = ""
     if x.get("single_internal_note"):
@@ -85,9 +83,6 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
     return f"""
       <div class="op-section">
         <div class="op-heading">X - post now</div>
-        <div class="op-line"><span class="op-key">Recommended format:</span> {_esc(recommended or x.get('format'))}</div>
-        <div class="op-line"><span class="op-key">Reason:</span> {_esc(format_reason)}</div>
-        <div class="op-line"><span class="op-key">Action:</span> {_esc(x.get('action'))}</div>
         <div class="op-line"><span class="op-key">Post now:</span> <strong>{_esc(x.get('post_now'))}</strong></div>
         <div class="op-line"><span class="op-key">Deadline:</span> {_esc(x.get('deadline'))}</div>
         <div class="op-line"><span class="op-key">Expires:</span> {_esc(x.get('expires'))}</div>
@@ -99,12 +94,13 @@ def _render_x_post_section(x: dict[str, Any]) -> str:
     """
 
 
-def _render_linkedin_decision(li: dict[str, Any]) -> str:
+def _render_linkedin_decision(li: dict[str, Any], delivery: dict[str, Any]) -> str:
+    copy_text = delivery.get("linkedin") or li.get("copy_this") or ""
     copy_block = ""
-    if li.get("copy_this"):
+    if copy_text:
         copy_block = f"""
         <div class="op-line"><span class="op-key">COPY THIS - LINKEDIN</span></div>
-        <div class="post-box linkedin" style="margin-top:6px;">{_esc(li.get('copy_this', '')).replace(chr(10), '<br>')}</div>
+        <div class="post-box linkedin" style="margin-top:6px;">{_esc(copy_text).replace(chr(10), '<br>')}</div>
         """
 
     return f"""
@@ -125,26 +121,31 @@ def _render_linkedin_decision(li: dict[str, Any]) -> str:
 def _render_delivery_formats(delivery: dict[str, Any]) -> str:
     if not delivery:
         return ""
-    linkedin_copy = delivery.get("linkedin_copy") or ""
-    substack_copy = delivery.get("substack_copy") or ""
     suggested = delivery.get("suggested_format") or ""
     suggested_reason = delivery.get("suggested_format_reason") or ""
+    also_included = delivery.get("also_included") or ""
+    substack = delivery.get("substack") or delivery.get("substack_copy") or ""
     cadence_note = delivery.get("linkedin_cadence_note") or ""
     cadence_action = delivery.get("linkedin_cadence_action") or ""
     youtube_note = delivery.get("youtube_note") or "YouTube: Not active yet. Video scripts will be added soon."
 
     substack_block = ""
-    if substack_copy:
+    if substack:
         substack_block = f"""
         <div class="op-line"><span class="op-key">COPY THIS - SUBSTACK</span></div>
-        <div class="post-box" style="margin-top:6px;">{_esc(substack_copy).replace(chr(10), '<br>')}</div>
+        <div class="post-box" style="margin-top:6px;">{_esc(substack).replace(chr(10), '<br>')}</div>
         """
+
+    also_line = ""
+    if also_included:
+        also_line = f'<div class="op-line"><span class="op-key">Also included:</span> {_esc(also_included)}</div>'
 
     return f"""
       <div class="op-section">
         <div class="op-heading">Suggested format</div>
-        <div class="op-line"><span class="op-key">Suggested post format:</span> {_esc(suggested)}</div>
+        <div class="op-line"><span class="op-key">Suggested format:</span> {_esc(suggested)}</div>
         <div class="op-line"><span class="op-key">Reason:</span> {_esc(suggested_reason)}</div>
+        {also_line}
         <div class="op-line muted">{_esc(cadence_note)}</div>
         <div class="op-line muted">{_esc(cadence_action)}</div>
         {substack_block}
@@ -176,7 +177,7 @@ def _render_operator_block(block: dict[str, Any]) -> str:
       </div>
       {_render_x_post_section(x)}
       {_render_delivery_formats(delivery)}
-      {_render_linkedin_decision(li)}
+      {_render_linkedin_decision(li, delivery)}
       <div class="op-section">
         <div class="op-heading">Queue</div>
         <div class="op-line"><span class="op-key">Previous later-post:</span> {_esc(queue.get('previous_later_post') or 'None')}</div>
@@ -231,8 +232,6 @@ def build_email_html(result: dict[str, Any]) -> str:
     tier_meta = result.get("crisis_tier_meta") or {}
     scan_tier = tier_meta.get("immediate_tier") or tier_meta.get("scan_tier") or result.get("scan_tier") or "ROUTINE"
     crisis_header = bool(tier_meta.get("crisis_detected"))
-
-    show_linkedin = bool(li_block.get("copy_this"))
 
     runtime = (result.get("runtime") or {}).get("runtime_label") or "unknown"
 
@@ -290,7 +289,6 @@ def build_email_html(result: dict[str, Any]) -> str:
       <div class="section-label">Top Signals Today</div>
       {_render_top_signals(top_display)}
     </div>
-    {'<div class="section"><div class="section-label">LinkedIn - ' + _esc(li_block.get("status", "POST")) + '</div><div class="post-box linkedin">' + _esc(li_block.get("copy_this") or li_block.get("article_post", "")).replace(chr(10), "<br>") + '</div></div>' if show_linkedin else ''}
     <div class="section">
       <div class="section-label">Journalist engagement</div>
       {_render_journalist(journalist)}

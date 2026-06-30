@@ -235,7 +235,7 @@ def build_linkedin_block(
 ) -> dict[str, Any]:
     day = str(result.get("day_of_week") or "")
     next_li = next_linkedin_day(day)
-    next_window = f"{next_li} 09:00–11:00 PKT"
+    next_window = f"{next_li} 09:00-11:00 PKT"
     current_time = format_pkt_now(result)
     window = linkedin_window_state(result)
     tier_meta = result.get("crisis_tier_meta") or classify_scan_tier(result)

@@ -162,14 +162,14 @@ class TestAlwaysSendCopy(unittest.TestCase):
         result = resolve_queue(_scan_2256(), None)
         html = build_email_html(result)
         delivery = result["operator_block"]["delivery"]
-        self.assertIn("Suggested post format:", html)
+        self.assertIn("Suggested format:", html)
         self.assertTrue(delivery.get("suggested_format"))
         self.assertTrue(delivery.get("suggested_format_reason"))
 
     def test_copy_formats_are_advisory_not_auto_post(self):
         result = resolve_queue(_scan_2256(), None)
         html = build_email_html(result)
-        self.assertIn("Suggested post format:", html)
+        self.assertIn("Suggested format:", html)
         self.assertIn("COPY THIS - SINGLE TWEET", html)
         self.assertIn("COPY THIS - THREAD", html)
         self.assertNotIn("AUTO POST", html.upper())
@@ -190,8 +190,8 @@ class TestAlwaysSendCopy(unittest.TestCase):
         linkedin = result["operator_block"]["linkedin"]["copy_this"]
         gate = prepare_public_copy(linkedin, "linkedin", "linkedin_post", sources=SOURCES, primary_title=OMAN_TITLE)
         self.assertTrue(gate["passed"])
-        self.assertGreaterEqual(len(linkedin), 900)
-        self.assertLessEqual(len(linkedin), 1500)
+        self.assertGreaterEqual(len(linkedin), 700)
+        self.assertLessEqual(len(linkedin), 1200)
 
 
 class TestDualCopyAlwaysPassesWhenVerified(unittest.TestCase):

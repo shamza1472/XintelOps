@@ -142,11 +142,11 @@ class TestScan0058Regression(unittest.TestCase):
 
     def test_recommends_single_when_thread_blocked(self):
         result = resolve_queue(_scan_0058(), None)
-        x = result["operator_block"]["x"]
-        self.assertEqual(x.get("recommended_format"), "SINGLE TWEET")
+        delivery = result["operator_block"]["delivery"]
+        self.assertEqual(delivery.get("suggested_format"), "SINGLE TWEET")
         html = build_email_html(result)
         self.assertIn("SINGLE TWEET", html)
-        self.assertNotIn("Recommended format:</span> THREAD", html.replace("SINGLE TWEET", ""))
+        self.assertNotIn("Suggested format:</span> THREAD", html.replace("SINGLE TWEET", ""))
 
     def test_email_visible_text_has_no_em_dash(self):
         scan = _scan_0058(
