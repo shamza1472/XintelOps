@@ -456,18 +456,22 @@ def resolve_effective_format_recommendation(
     return recommended, format_reason
 
 
+def _phrase_matches_banned(text: str, phrase: str) -> bool:
+    """Match banned phrases on word boundaries so substrings like 'the key issue' do not hit 'the key is'."""
+    pattern = r"\b" + re.escape(phrase) + r"\b"
+    return bool(re.search(pattern, text.lower()))
+
+
 def _contains_global_banned(text: str) -> str | None:
-    lower = text.lower()
     for phrase in sorted(GLOBAL_BANNED_PHRASES, key=len, reverse=True):
-        if phrase in lower:
+        if _phrase_matches_banned(text, phrase):
             return phrase
     return None
 
 
 def _contains_thread_quality_banned(text: str) -> str | None:
-    lower = text.lower()
     for phrase in _THREAD_QUALITY_BANNED:
-        if phrase in lower:
+        if _phrase_matches_banned(text, phrase):
             return phrase
     return None
 
@@ -786,15 +790,8 @@ def validate_public_copy(
 
     max_len = _max_len_for(format_type)
     check_body = body
-    if format_type == "single_tweet":
-        if is_malformed_tweet(check_body):
-            violations.append("malformed tweet")
-        if is_truncated_tweet(check_body):
-            violations.append("truncated tweet")
-        if max_len and len(check_body) > max_len:
-            check_body = fit_tweet_length(check_body, max_len)
-    elif max_len and len(check_body) > max_len:
-        check_body = check_body[:max_len].rsplit(" ", 1)[0].rstrip(",;") + "."
+    if format_type == "single_tweet" and is_malformed_tweet(check_body):
+        violations.append("malformed tweet")
 
     if format_type == "single_tweet":
         edited = editorial_pipeline(check_body, sources, primary_title=primary_title)
@@ -828,6 +825,14 @@ def validate_public_copy(
             if v not in violations:
                 violations.append(v)
 
+    if format_type == "single_tweet" and max_len and len(check_body) > max_len:
+        check_body = fit_tweet_length(check_body, max_len)
+    elif max_len and len(check_body) > max_len:
+        check_body = check_body[:max_len].rsplit(" ", 1)[0].rstrip(",;") + "."
+
+    if format_type == "single_tweet" and is_truncated_tweet(check_body):
+        violations.append("truncated tweet")
+
     for v in audit_copy_completeness(check_body):
         if v not in violations:
             violations.append(v)
@@ -836,6 +841,11 @@ def validate_public_copy(
         mapped = f"editorial quality: {v}"
         if mapped not in violations:
             violations.append(mapped)
+
+    if format_type == "single_tweet":
+        post_banned = _contains_global_banned(check_body)
+        if post_banned:
+            violations.append(f"banned phrase: {post_banned}")
 
     passed = not violations and bool(check_body.strip())
     reason = violations[0] if violations else ""
@@ -960,7 +970,7 @@ def build_minimal_verified_single_tweet(
             "The issue now is whether the pause lowers Hormuz shipping risk, Gulf basing pressure, "
             "and insurance pricing before the next round of Doha talks."
         )
-        return fit_tweet_length(text, 280)
+        return text
 
     verified: list[str] = []
     for item in signal.get("verified_facts") or []:
@@ -1006,7 +1016,7 @@ def build_minimal_verified_single_tweet(
         name = src.get("name") or src.get("source") or "Reporting"
         text = f"{name} reports an update on {title or 'the selected signal'}."
 
-    return fit_tweet_length(text, 280) if text else ""
+    return text if text else ""
 
 
 def build_safe_linkedin_fallback(

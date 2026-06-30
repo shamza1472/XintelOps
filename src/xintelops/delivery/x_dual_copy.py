@@ -19,7 +19,6 @@ from xintelops.delivery.public_copy_gate import (
 )
 from xintelops.delivery.x_copy import (
     apply_brand_footer_to_tweets,
-    fit_tweet_length,
     format_single_post,
     format_thread_for_display,
     is_malformed_tweet,
@@ -28,7 +27,8 @@ from xintelops.delivery.x_copy import (
 )
 
 _INTERNAL_SKIP = re.compile(
-    r"why_this_fits|xintelops|operator|score|lane|headline cycle|most analysts|the signal|watch next|bottom line",
+    r"why_this_fits|xintelops|operator|score|lane|headline cycle|most analysts|the signal|watch next|bottom line|"
+    r"dominant headline|prior scans|monitor only|repost|already covered",
     re.I,
 )
 
@@ -68,8 +68,6 @@ def extract_signal_facts(result: dict[str, Any], primary_title: str) -> dict[str
         or (top.get("summary") if use_top else "")
         or ""
     )
-    watch = _clean_fact_text(signal.get("action_rationale") or "")
-
     regions = signal.get("regions") or []
     if isinstance(regions, str):
         regions = [regions]
@@ -81,7 +79,6 @@ def extract_signal_facts(result: dict[str, Any], primary_title: str) -> dict[str
         "title": title,
         "event": f"{title.rstrip('.')}." if title else "",
         "implication": implication,
-        "watch": watch,
         "region": str(signal.get("region") or (top.get("region") if use_top else "") or (regions[0] if regions else "")),
         "domain": str(signal.get("domain") or (top.get("domain") if use_top else "") or ""),
         "source": str(signal.get("source") or (top.get("source") if use_top else "") or ""),
@@ -138,7 +135,6 @@ def recommend_x_format(
 def build_single_from_facts(facts: dict[str, Any]) -> str:
     event = facts.get("event") or ""
     implication = facts.get("implication") or ""
-    watch = facts.get("watch") or ""
 
     pseudo_signal = {
         "title": facts.get("title") or "",
@@ -171,9 +167,7 @@ def build_single_from_facts(facts: dict[str, Any]) -> str:
         )
 
     text = " ".join(parts).strip()
-    if not text:
-        return ""
-    return fit_tweet_length(text, 260)
+    return text
 
 
 def build_thread_from_facts(facts: dict[str, Any]) -> list[str]:
@@ -220,7 +214,7 @@ def build_thread_from_facts(facts: dict[str, Any]) -> list[str]:
         f"The next indicators are official statements, transit behavior in {region_label}, and follow-on reporting."
     )
 
-    cleaned = [fit_tweet_length(t) for t in tweets if t and len(t) >= 20]
+    cleaned = [t for t in tweets if t and len(t) >= 20]
     return cleaned[:6]
 
 
