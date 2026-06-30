@@ -90,7 +90,7 @@ class TestXCopyInOperatorBlock(unittest.TestCase):
         x = result["operator_block"]["x"]
         draft = x.get("single_copy") or x.get("draft") or ""
         self.assertNotIn("THREAD", draft.split("\n")[0])
-        self.assertIn("PLA Fujian", draft)
+        self.assertIn("Fujian", draft)
         self.assertIn("COPY THIS - SINGLE TWEET", build_email_html(result))
 
     def test_missing_x_copy_uses_fact_fallback_or_blocks(self):

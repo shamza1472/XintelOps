@@ -482,9 +482,9 @@ def _apply_final_rewrites(text: str) -> str:
 
 
 def _contains_banned_phrase(text: str) -> str | None:
-    lower = text.lower()
     for phrase in sorted(FINAL_BANNED_PHRASES, key=len, reverse=True):
-        if phrase in lower:
+        pattern = r"\b" + re.escape(phrase) + r"\b"
+        if re.search(pattern, text.lower()):
             return phrase
     return None
 
