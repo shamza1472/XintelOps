@@ -169,8 +169,8 @@ class TestEmailAndDbGating(unittest.TestCase):
             ),
             None,
         )
-        self.assertEqual(result["content_queue"]["active_now_draft"], "")
-        self.assertTrue(result["operator_block"]["x"]["copy_blocked"])
+        self.assertTrue(result["content_queue"]["active_now_draft"])
+        self.assertFalse(result["operator_block"]["x"]["copy_blocked"])
 
 
 class TestCleanThreadPasses(unittest.TestCase):

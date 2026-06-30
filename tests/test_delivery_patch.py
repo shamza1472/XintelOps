@@ -236,7 +236,8 @@ class TestSourceRolesAndLinkedIn(unittest.TestCase):
         result["crisis_tier_meta"] = classify_scan_tier(result)
         block = build_linkedin_block(result, [])
         self.assertEqual(block["status"], "Not scheduled today")
-        self.assertEqual(block["copy_this"], "")
+        self.assertTrue(block["copy_this"])
+        self.assertEqual(block["action"], "Hold until next LinkedIn window")
 
     def test_thursday_crisis_linkedin_shows_copy(self):
         crisis_sig = {
@@ -391,11 +392,9 @@ class TestLinkedInNoContradiction(unittest.TestCase):
         )
         result["crisis_tier_meta"] = classify_scan_tier(result)
         block = build_linkedin_block(result, [])
-        if block["action"] in {"Post now", "Post now despite missed window", "Post now despite non-scheduled day"}:
-            self.assertTrue(block.get("copy_this"))
-            self.assertNotIn("No LinkedIn post today", block.get("copy_this", ""))
-        else:
-            self.assertFalse(block.get("copy_this"))
+        self.assertTrue(block.get("copy_this"))
+        self.assertNotIn("No LinkedIn post today", block.get("copy_this", ""))
+        self.assertEqual(block["action"], "Hold until next LinkedIn window")
 
 
 if __name__ == "__main__":

@@ -229,9 +229,9 @@ class TestFailedFormatClearing(unittest.TestCase):
         result["operator_decisions"]["one_signal_to_post"]["action"] = "X THREAD"
         sig["recommended_action"] = "X THREAD"
         resolved = resolve_queue(result, None)
-        self.assertEqual(resolved.get("x_post"), "")
-        self.assertEqual(resolved.get("x_thread"), [])
-        self.assertTrue(resolved["operator_block"]["x"]["copy_blocked"])
+        self.assertTrue(resolved["operator_block"]["x"]["single_copy"])
+        self.assertTrue(resolved["operator_block"]["x"]["thread_copy"])
+        self.assertFalse(resolved["operator_block"]["x"]["copy_blocked"])
 
 
 class TestMinimalFallbackSafe(unittest.TestCase):

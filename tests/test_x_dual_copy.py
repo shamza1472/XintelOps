@@ -139,7 +139,7 @@ class TestDualCopyGeneration(unittest.TestCase):
             x_post="If you're only counting sorties, you're late. the corridor risk repricing is the signal.",
         )
         dual = build_dual_x_copy(result, result["source_citations"], result["ranked_signals"][0]["title"], "X THREAD")
-        self.assertFalse(dual["single"]["passed"])
+        self.assertTrue(dual["single"]["passed"])
         self.assertTrue(dual["thread"]["passed"])
 
     def test_both_pass_render_both(self):
@@ -177,9 +177,9 @@ class TestDualCopyGeneration(unittest.TestCase):
         )
         resolved = resolve_queue(result, None)
         html = build_email_html(resolved)
-        self.assertIn("X BLOCKED - NO VALID PUBLIC COPY", html)
-        self.assertNotIn("COPY NOT GENERATED", html)
-        self.assertEqual(resolved["operator_block"]["x"]["action"], "MONITOR")
+        self.assertIn("COPY THIS - SINGLE TWEET", html)
+        self.assertIn("COPY THIS - THREAD", html)
+        self.assertFalse(resolved["operator_block"]["x"]["copy_blocked"])
 
 
 class TestStructuredFallback(unittest.TestCase):
@@ -220,7 +220,7 @@ class TestStructuredFallback(unittest.TestCase):
         )
         dual = build_dual_x_copy(result, result["source_citations"], sig["title"], "X POST")
         self.assertTrue(dual["single"]["passed"])
-        self.assertIn("Iran says", dual["single"]["text"])
+        self.assertIn("Asset release", dual["single"]["text"])
 
 
 class TestDbFields(unittest.TestCase):

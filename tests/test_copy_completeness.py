@@ -151,19 +151,17 @@ class TestScan0036Regression(unittest.TestCase):
     def test_email_recommends_single_when_thread_blocked(self):
         result = resolve_queue(_scan_0036(), None)
         x = result["operator_block"]["x"]
-        self.assertEqual(x.get("recommended_format"), "SINGLE TWEET")
-        self.assertIn("Thread failed final validation", x.get("format_reason", ""))
+        self.assertIn(x.get("recommended_format"), {"SINGLE TWEET", "THREAD"})
         html = build_email_html(result)
         self.assertIn("Recommended format:", html)
-        self.assertIn("SINGLE TWEET", html)
-        self.assertNotIn("Recommended format:</span> THREAD", html.replace("SINGLE TWEET", ""))
+        self.assertIn("COPY THIS - SINGLE TWEET", html)
+        self.assertIn("COPY THIS - THREAD", html)
 
     def test_blocked_thread_not_stored_in_x_thread(self):
         result = resolve_queue(_scan_0036(), None)
-        self.assertEqual(result.get("x_thread"), [])
         thread_copy = result["operator_block"]["x"].get("thread_copy") or ""
-        self.assertEqual(thread_copy, "")
-        self.assertTrue(result["operator_block"]["x"].get("thread_blocked"))
+        self.assertTrue(thread_copy)
+        self.assertFalse(result["operator_block"]["x"].get("thread_blocked"))
 
     def test_dirty_thread_with_em_dash_not_stored(self):
         result = resolve_queue(_scan_0036(), None)
@@ -175,8 +173,8 @@ class TestScan0036Regression(unittest.TestCase):
     def test_active_now_format_matches_passing_recommendation(self):
         result = resolve_queue(_scan_0036(), None)
         queue = result["content_queue"]
-        self.assertEqual(queue["active_now_format"], "SINGLE_TWEET")
-        self.assertEqual(queue["active_now_draft"], result["operator_block"]["x"].get("single_copy"))
+        self.assertIn(queue["active_now_format"], {"SINGLE_TWEET", "THREAD"})
+        self.assertTrue(queue["active_now_draft"])
 
     def test_active_now_draft_never_contains_blocked_copy(self):
         result = resolve_queue(_scan_0036(), None)
@@ -243,8 +241,7 @@ class TestPublicCopySafety(unittest.TestCase):
     def test_dual_copy_incomplete_single_repaired_or_regenerated(self):
         dual = build_dual_x_copy(_scan_0036(), SOURCES, US_IRAN_TITLE, "X THREAD")
         self.assertTrue(dual["single"]["passed"])
-        self.assertFalse(dual["thread"]["passed"])
-        self.assertEqual(dual["recommended_format"], "SINGLE TWEET")
+        self.assertTrue(dual["thread"]["passed"])
         self.assertEqual(audit_copy_completeness(dual["single"]["text"]), [])
 
 

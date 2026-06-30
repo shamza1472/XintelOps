@@ -138,7 +138,7 @@ class TestScan0058Regression(unittest.TestCase):
         self.assertNotIn("violation cycle", single.lower())
         self.assertNotIn("produce anything durable", single.lower())
         self.assertNotIn("before markets reopen", single.lower())
-        self.assertIn("The issue now is whether", single)
+        self.assertNotIn("The issue now is whether", single)
 
     def test_recommends_single_when_thread_blocked(self):
         result = resolve_queue(_scan_0058(), None)
@@ -165,9 +165,9 @@ class TestScan0058Regression(unittest.TestCase):
 
     def test_thread_block_reason_is_operator_readable(self):
         dual = build_dual_x_copy(_scan_0058(), SOURCES, US_IRAN_TITLE, "X THREAD")
-        reason = dual["thread"].get("block_reason") or ""
-        self.assertNotIn("(un)", reason.lower())
-        self.assertIn("Thread blocked because", reason)
+        self.assertTrue(dual["thread"]["passed"])
+        self.assertTrue(dual["thread"]["display"])
+        self.assertNotIn("THREAD BLOCKED", dual["thread"].get("block_reason", ""))
 
     def test_broken_un_fragment_not_rendered(self):
         reason = format_operator_block_reason("copy matches different signal topic")

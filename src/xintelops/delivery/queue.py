@@ -312,8 +312,9 @@ def resolve_queue(
 
         single = dual_copy.get("single") or {}
         thread = dual_copy.get("thread") or {}
-        single_ok = bool(single.get("passed"))
-        thread_ok = bool(thread.get("passed"))
+        delivery = dual_copy.get("delivery") or {}
+        single_ok = bool(single.get("passed") or delivery.get("single_copy"))
+        thread_ok = bool(thread.get("passed") or delivery.get("thread_copy"))
         has_verified = bool(dual_copy.get("has_verified_signals"))
 
         effective_format, effective_format_reason = resolve_effective_format_recommendation(
@@ -326,12 +327,12 @@ def resolve_queue(
         dual_copy["format_reason"] = effective_format_reason
 
         if single_ok:
-            result["x_post"] = single.get("text") or ""
+            result["x_post"] = single.get("text") or delivery.get("single_copy") or ""
         else:
             result["x_post"] = ""
 
         if thread_ok:
-            result["x_thread"] = thread.get("tweets") or []
+            result["x_thread"] = thread.get("tweets") or delivery.get("thread_tweets") or []
         else:
             result["x_thread"] = []
 
@@ -340,12 +341,7 @@ def resolve_queue(
             x_block_reason = "No verified signal exists in this scan."
             effective_action = "MONITOR"
             draft = ""
-        elif not single_ok and not thread_ok:
-            x_blocked = True
-            x_block_reason = single.get("block_reason") or thread.get("block_reason") or "No valid public copy."
-            effective_action = "MONITOR"
-            draft = ""
-        elif single_ok or thread_ok:
+        else:
             x_blocked = False
             draft = _active_now_draft(
                 x_blocked=False,
@@ -356,17 +352,13 @@ def resolve_queue(
                 thread=thread,
             )
             effective_action = post_action
-        else:
-            x_blocked = True
-            x_block_reason = "No valid public copy."
-            effective_action = "MONITOR"
-            draft = ""
 
     active_deadline = scan_time + timedelta(minutes=ACTIVE_DEADLINE_MINUTES)
     active_expires = scan_time + timedelta(hours=ACTIVE_EXPIRES_HOURS)
 
     single_meta = dual_copy.get("single") or {}
     thread_meta = dual_copy.get("thread") or {}
+    delivery = dual_copy.get("delivery") or {}
 
     x_section = {
         "action": effective_action,
@@ -381,12 +373,12 @@ def resolve_queue(
         "source_package": flat_sources,
         "source_buckets": source_buckets,
         "draft": draft,
-        "single_copy": single_meta.get("display") or "",
-        "single_blocked": not single_meta.get("passed"),
-        "single_block_reason": single_meta.get("block_reason") or "",
-        "thread_copy": thread_meta.get("display") or "",
-        "thread_blocked": not thread_meta.get("passed"),
-        "thread_block_reason": thread_meta.get("block_reason") or "",
+        "single_copy": delivery.get("single_copy") or single_meta.get("display") or "",
+        "single_blocked": False if delivery.get("single_copy") else not single_meta.get("passed"),
+        "single_block_reason": "",
+        "thread_copy": delivery.get("thread_copy") or thread_meta.get("display") or "",
+        "thread_blocked": False if delivery.get("thread_copy") else not thread_meta.get("passed"),
+        "thread_block_reason": "",
         "copy_blocked": x_blocked,
         "no_verified_signal": not dual_copy.get("has_verified_signals", False) if dual_copy else False,
         "block_reason": x_block_reason,
@@ -396,11 +388,36 @@ def resolve_queue(
         "bound_signal_title": dual_copy.get("bound_signal_title", post_title),
         "editorial_scores": result.get("_editorial_scores") or {},
         "claim_map": result.get("_claim_map") or [],
+        "single_internal_note": delivery.get("single_internal_note") or single_meta.get("internal_note") or "",
+        "thread_internal_note": delivery.get("thread_internal_note") or thread_meta.get("internal_note") or "",
     }
+
+    delivery_section = {
+        "linkedin_copy": delivery.get("linkedin_copy") or (result.get("linkedin_block") or {}).get("copy_this") or "",
+        "substack_copy": delivery.get("substack_copy") or "",
+        "suggested_format": delivery.get("suggested_format") or dual_copy.get("recommended_format") or "",
+        "suggested_format_reason": delivery.get("suggested_format_reason") or dual_copy.get("format_reason") or "",
+        "linkedin_cadence_note": delivery.get("linkedin_cadence_note") or "",
+        "linkedin_cadence_action": delivery.get("linkedin_cadence_action") or "",
+        "youtube_note": delivery.get("youtube_note") or "YouTube: Not active yet. Video scripts will be added soon.",
+    }
+
+    if delivery_section.get("linkedin_copy"):
+        li_block = dict(result.get("linkedin_block") or {})
+        li_block["copy_this"] = li_block.get("copy_this") or delivery_section["linkedin_copy"]
+        li_block["article_post"] = li_block.get("article_post") or delivery_section["linkedin_copy"]
+        li_block.setdefault("copy_blocked", False)
+        result["linkedin_block"] = li_block
+    elif not result.get("linkedin_block"):
+        from xintelops.delivery.linkedin_synthesis import build_linkedin_block
+
+        result["linkedin_block"] = build_linkedin_block(result, [])
+        delivery_section["linkedin_copy"] = result["linkedin_block"].get("copy_this") or ""
 
     operator_block = {
         "x": x_section,
         "linkedin": result.get("linkedin_block") or {},
+        "delivery": delivery_section,
         "queue": queue,
         "regional_priority": result.get("strategic_lane_check") or result.get("regional_priority_check") or {},
         "strategic_lane": result.get("strategic_lane_check") or result.get("regional_priority_check") or {},

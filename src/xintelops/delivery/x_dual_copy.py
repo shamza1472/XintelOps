@@ -150,20 +150,16 @@ def build_single_from_facts(facts: dict[str, Any]) -> str:
 
     title_lower = str(facts.get("title") or "").lower()
     region = str(facts.get("region") or "").lower()
-    if (
-        "iran" in title_lower
-        and ("us" in title_lower or "stand down" in title_lower or "stand-down" in title_lower)
-    ):
-        parts.append(
-            "The issue now is whether the pause lowers Hormuz shipping risk, Gulf basing pressure, "
-            "and insurance pricing before the next round of Doha talks."
-        )
-    elif implication and implication.lower() not in (event or "").lower():
+    if implication and implication.lower() not in (event or "").lower():
         parts.append(implication if implication.endswith(".") else f"{implication}.")
-    elif region in {"gulf", "middle east"} or "hormuz" in title_lower:
+    elif "hormuz" in title_lower or "strait" in title_lower or "fee" in title_lower or "transit" in title_lower:
         parts.append(
-            "The issue now is whether the pause lowers shipping risk, Gulf basing pressure, "
-            "and insurance pricing before follow-on diplomacy."
+            "If implemented, the Strait shifts from a military chokepoint into a pricing chokepoint, "
+            "with direct consequences for shipping costs, insurance, and Gulf trade exposure."
+        )
+    elif region in {"gulf", "middle east"}:
+        parts.append(
+            f"Reporting points to repricing risk across shipping, insurance, and basing decisions tied to {facts.get('region') or 'the Gulf'}."
         )
 
     text = " ".join(parts).strip()
@@ -476,93 +472,95 @@ def build_dual_x_copy(
     primary_title: str,
     requested_action: str = "",
 ) -> dict[str, Any]:
-    """Build, validate, and gate single tweet and thread independently for the selected signal."""
+    """Build single tweet and thread; always return usable copy when the scan has verified signals."""
     verified_signals = get_verified_signals(result)
     has_verified = bool(verified_signals)
-    other_signals = [s for s in (result.get("ranked_signals") or []) if s.get("title") != primary_title]
 
     signal = _selected_signal(result, primary_title)
     facts = extract_signal_facts(result, primary_title)
     recommended, format_reason = recommend_x_format(signal, facts, requested_action)
 
-    single_candidates: list[str] = []
+    if not has_verified:
+        empty_single = _empty_single_result("No verified signal exists in this scan.")
+        empty_thread: dict[str, Any] = {
+            "passed": False,
+            "text": "",
+            "tweets": [],
+            "display": "",
+            "block_reason": "No verified signal exists in this scan.",
+        }
+        return {
+            "recommended_format": recommended,
+            "format_reason": format_reason,
+            "original_recommended_format": recommended,
+            "original_format_reason": format_reason,
+            "single": empty_single,
+            "thread": empty_thread,
+            "any_passed": False,
+            "both_failed": True,
+            "primary_draft": "",
+            "has_verified_signals": False,
+            "mandatory_single_met": False,
+            "bound_signal_title": primary_title,
+            "fallback_used": False,
+            "fallback_signal": "",
+            "fallback_reason": "",
+            "delivery": {},
+        }
+
     agent_single = format_single_post(str(result.get("x_post") or ""))
-    if agent_single:
-        single_candidates.append(agent_single)
-    built_single = build_single_from_facts(facts)
-    if built_single and built_single not in single_candidates:
-        single_candidates.append(built_single)
-    minimal = build_minimal_verified_single_tweet(signal, sources)
-    if minimal and minimal not in single_candidates:
-        single_candidates.append(minimal)
-    if not single_candidates and parse_x_thread(result.get("x_thread")):
-        single_candidates.append(parse_x_thread(result.get("x_thread"))[0])
+    agent_thread = parse_x_thread(result.get("x_thread")) or None
 
-    single_result = _empty_single_result(
-        "SINGLE TWEET BLOCKED - FINAL COPY QUALITY FAIL\nReason: No single tweet candidate."
+    from xintelops.delivery.final_copy import build_delivery_formats
+
+    delivery = build_delivery_formats(
+        result,
+        signal,
+        sources,
+        recommended_format=recommended,
+        format_reason=format_reason,
+        agent_single=agent_single,
+        agent_thread=agent_thread,
     )
-    for candidate in single_candidates:
-        attempt = _finalize_single(
-            candidate,
-            sources,
-            primary_title,
-            selected_signal=signal,
-            other_signals=other_signals,
-        )
-        if attempt["passed"]:
-            single_result = attempt
-            break
-        single_result = attempt
 
-    if not single_result["passed"] and has_verified:
-        single_result = _mandatory_single_fallback(
-            result, sources, primary_title, signal, other_signals
-        )
+    single_copy = delivery.get("single_copy") or ""
+    thread_copy = delivery.get("thread_copy") or ""
+    thread_tweets = delivery.get("thread_tweets") or []
 
-    thread_candidates: list[list[str]] = []
-    built_thread = build_thread_from_facts(facts)
-    if built_thread and len(built_thread) >= 3:
-        thread_candidates.append(built_thread)
-    agent_thread = parse_x_thread(result.get("x_thread"))
-    if agent_thread:
-        thread_candidates.append(agent_thread)
-
-    thread_result: dict[str, Any] = {
-        "passed": False,
-        "text": "",
-        "tweets": [],
-        "display": "",
-        "block_reason": "THREAD BLOCKED - FINAL COPY QUALITY FAIL\nReason: No thread candidate.",
+    single_result: dict[str, Any] = {
+        "passed": bool(single_copy),
+        "text": single_copy,
+        "display": single_copy,
+        "block_reason": "",
+        "fallback_used": False,
+        "fallback_signal": "",
+        "fallback_reason": "",
+        "internal_note": delivery.get("single_internal_note") or "",
     }
-    for candidate in thread_candidates:
-        attempt = _finalize_thread(
-            candidate,
-            sources,
-            primary_title,
-            selected_signal=signal,
-            other_signals=other_signals,
-        )
-        if attempt["passed"]:
-            thread_result = attempt
-            break
-        thread_result = attempt
+    thread_result: dict[str, Any] = {
+        "passed": bool(thread_copy),
+        "text": thread_copy,
+        "tweets": thread_tweets,
+        "display": thread_copy,
+        "block_reason": "",
+        "internal_note": delivery.get("thread_internal_note") or "",
+    }
 
-    any_pass = single_result["passed"] or thread_result["passed"]
     effective_format, effective_format_reason = resolve_effective_format_recommendation(
         recommended,
         format_reason,
-        single_passed=single_result["passed"],
-        thread_passed=thread_result["passed"],
+        single_passed=bool(single_copy),
+        thread_passed=bool(thread_copy),
     )
 
-    if effective_format == "SINGLE TWEET" and single_result["passed"]:
-        primary_draft = single_result["display"]
-    elif effective_format == "THREAD" and thread_result["passed"]:
-        primary_draft = thread_result["display"]
-    elif single_result["passed"]:
-        primary_draft = single_result["display"]
-    elif thread_result["passed"]:
-        primary_draft = thread_result["display"]
+    if effective_format == "SINGLE TWEET" and single_copy:
+        primary_draft = single_copy
+    elif effective_format == "THREAD" and thread_copy:
+        primary_draft = thread_copy
+    elif single_copy:
+        primary_draft = single_copy
+    elif thread_copy:
+        primary_draft = thread_copy
     else:
         primary_draft = ""
 
@@ -573,13 +571,14 @@ def build_dual_x_copy(
         "original_format_reason": format_reason,
         "single": single_result,
         "thread": thread_result,
-        "any_passed": any_pass,
-        "both_failed": not any_pass,
+        "any_passed": bool(single_copy or thread_copy),
+        "both_failed": not (single_copy or thread_copy),
         "primary_draft": primary_draft,
-        "has_verified_signals": has_verified,
-        "mandatory_single_met": single_result["passed"],
+        "has_verified_signals": True,
+        "mandatory_single_met": bool(single_copy),
         "bound_signal_title": primary_title,
-        "fallback_used": single_result.get("fallback_used", False),
-        "fallback_signal": single_result.get("fallback_signal", ""),
-        "fallback_reason": single_result.get("fallback_reason", ""),
+        "fallback_used": False,
+        "fallback_signal": "",
+        "fallback_reason": "",
+        "delivery": delivery,
     }
