@@ -505,74 +505,351 @@ def produce_final_linkedin(
     return FinalCopy(text=final, display=final, passed=bool(final), regenerated=True, internal_note="")
 
 
+_SUBSTACK_SECTION_HEADERS = frozenset({
+    "Thesis",
+    "What changed",
+    "Why it matters",
+    "Second-order effects",
+    "What to watch",
+    "Bottom line",
+})
+
+_SUBSTACK_FILLER_PHRASES = (
+    "additional reporting may clarify",
+)
+
+_SUBSTACK_SECTION_ORDER: tuple[tuple[str, str | None], ...] = (
+    ("title", None),
+    ("thesis", "Thesis"),
+    ("what_changed", "What changed"),
+    ("why_it_matters", "Why it matters"),
+    ("second_order_effects", "Second-order effects"),
+    ("what_to_watch", "What to watch"),
+    ("bottom_line", "Bottom line"),
+)
+
+
+def _normalize_sentence_key(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower().rstrip(".,;:!?"))
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if s.strip()]
+
+
+def _join_sentences(sentences: list[str]) -> str:
+    out: list[str] = []
+    for sentence in sentences:
+        s = sentence.strip()
+        if not s:
+            continue
+        if not s.endswith((".", "!", "?")):
+            s += "."
+        out.append(s)
+    return " ".join(out)
+
+
+def _substack_source_depth(signal: dict[str, Any], sources: list[dict[str, Any]]) -> str:
+    names = {str(s.get("name") or "").strip().lower() for s in sources if s.get("name")}
+    names.discard("")
+    verified = _verified_facts(signal)
+    if len(names) >= 3 and len(verified) >= 3:
+        return "deep"
+    if len(names) >= 2 or len(verified) >= 2:
+        return "multi"
+    return "thin"
+
+
+def _substack_max_words(depth: str) -> int:
+    return {"thin": 450, "multi": 750, "deep": 1000}.get(depth, 450)
+
+
+def _build_hormuz_substack_sections(signal: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, str]:
+    _ = sources
+    return {
+        "title": "Hormuz Risk Is Moving From Shock Pricing To Structural Pricing",
+        "thesis": (
+            "Oman and Iran's transit-fee plan would shift part of the Strait of Hormuz risk model "
+            "from emergency disruption to recurring cost exposure."
+        ),
+        "what_changed": "Oman and Iran are advancing a Strait of Hormuz transit-fee plan despite US objections.",
+        "why_it_matters": (
+            "If implemented, the Strait becomes more than a military chokepoint. It becomes a pricing chokepoint. "
+            "Shipping firms, insurers, energy buyers, Gulf ports, and procurement teams would need to model "
+            "recurring cost exposure into Gulf transit assumptions."
+        ),
+        "second_order_effects": (
+            "A fee mechanism can shape maritime behavior without closing the Strait outright. "
+            "That makes it quieter than a military escalation but potentially more durable as a commercial pressure tool."
+        ),
+        "what_to_watch": (
+            "Watch formal fee language, insurer notices, port behavior, US diplomatic response, "
+            "and any change in Gulf-linked routing patterns."
+        ),
+        "bottom_line": (
+            "Hormuz risk is no longer only about whether the Strait closes. "
+            "It is about who gets to price passage through it."
+        ),
+    }
+
+
+def _build_generic_substack_sections(signal: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, str]:
+    title = str(signal.get("title") or "Signal update").strip().rstrip(".")
+    verified = _verified_facts(signal)
+    region = str(signal.get("region") or "the region")
+    thesis = _business_consequence_sentence(signal).rstrip(".")
+    what_changed = verified[0] if verified else title
+    why = _clean_operator_text(str(signal.get("why_hamza_should_care") or "")) or thesis
+    second_order = (
+        f"The second-order effect is repricing across insurance, routing, and procurement decisions tied to {region}."
+    )
+    watch_raw = verified[1] if len(verified) > 1 else f"official statements and corridor behavior in {region}"
+    watch = watch_raw if str(watch_raw).lower().startswith("watch") else f"Watch {watch_raw.rstrip('.')}."
+    bottom = f"The operating read is to track corridor exposure for teams tied to {region}, not the headline alone."
+    return {
+        "title": title,
+        "thesis": thesis if thesis.endswith(".") else f"{thesis}.",
+        "what_changed": what_changed if what_changed.endswith(".") else f"{what_changed}.",
+        "why_it_matters": why if why.endswith(".") else f"{why}.",
+        "second_order_effects": second_order,
+        "what_to_watch": watch,
+        "bottom_line": bottom,
+    }
+
+
+def _build_minimal_substack_sections(signal: dict[str, Any]) -> dict[str, str]:
+    title = str(signal.get("title") or "Signal update").strip().rstrip(".")
+    verified = _verified_facts(signal)
+    region = str(signal.get("region") or "the region")
+    what_changed = verified[0] if verified else title
+    thesis = _business_consequence_sentence(signal).rstrip(".")
+    return {
+        "title": title,
+        "thesis": thesis if thesis.endswith(".") else f"{thesis}.",
+        "what_changed": what_changed if what_changed.endswith(".") else f"{what_changed}.",
+        "why_it_matters": f"The update affects operating decisions tied to {region}.",
+        "second_order_effects": f"Insurance, routing, and procurement plans may need to adjust if the update holds.",
+        "what_to_watch": f"Watch official statements and corridor behavior in {region}.",
+        "bottom_line": f"Treat this as an operating update with direct exposure for teams tracking {region}.",
+    }
+
+
+def _dedupe_substack_sections(sections: dict[str, str]) -> dict[str, str]:
+    seen: set[str] = set()
+    title_key = _normalize_sentence_key(sections.get("title", ""))
+    if title_key:
+        seen.add(title_key)
+
+    out: dict[str, str] = {}
+    if sections.get("title"):
+        out["title"] = sections["title"].strip()
+
+    for key, _label in _SUBSTACK_SECTION_ORDER[1:]:
+        body = str(sections.get(key) or "").strip()
+        if not body:
+            continue
+        kept: list[str] = []
+        for sentence in _split_sentences(body):
+            sent_key = _normalize_sentence_key(sentence)
+            if not sent_key or sent_key in seen:
+                continue
+            seen.add(sent_key)
+            kept.append(sentence)
+        if kept:
+            out[key] = _join_sentences(kept)
+    return out
+
+
+def _render_substack_post(sections: dict[str, str]) -> str:
+    parts: list[str] = []
+    title = sections.get("title", "").strip()
+    if title:
+        parts.append(title)
+    for key, label in _SUBSTACK_SECTION_ORDER[1:]:
+        body = sections.get(key, "").strip()
+        if body and label:
+            parts.append(f"{label}\n{body}")
+    return "\n\n".join(parts)
+
+
+def _sanitize_substack_block(block: str) -> str:
+    from xintelops.delivery.editorial import _EM_DASH_PATTERN
+
+    lines = block.split("\n", 1)
+    if len(lines) == 2 and lines[0].strip() in _SUBSTACK_SECTION_HEADERS:
+        header, body = lines[0].strip(), _EM_DASH_PATTERN.sub(", ", lines[1])
+        body = _strip_banned_phrases(body)
+        for phrase in _SUBSTACK_FILLER_PHRASES:
+            body = re.sub(re.escape(phrase), "", body, flags=re.IGNORECASE)
+        body = re.sub(r"\s{2,}", " ", body).strip()
+        return f"{header}\n{body}" if body else ""
+    cleaned = _strip_banned_phrases(_EM_DASH_PATTERN.sub(", ", block))
+    for phrase in _SUBSTACK_FILLER_PHRASES:
+        cleaned = re.sub(re.escape(phrase), "", cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def _sanitize_substack_copy(text: str) -> str:
+    blocks = [_sanitize_substack_block(b) for b in text.split("\n\n")]
+    return "\n\n".join(b for b in blocks if b.strip())
+
+
+def _dedupe_substack_text(text: str) -> str:
+    seen: set[str] = set()
+    blocks_out: list[str] = []
+    for block in text.split("\n\n"):
+        if not block.strip():
+            continue
+        lines = block.split("\n", 1)
+        if len(lines) == 2 and lines[0].strip() in _SUBSTACK_SECTION_HEADERS:
+            header, body = lines[0].strip(), lines[1]
+            kept: list[str] = []
+            for sentence in _split_sentences(body):
+                key = _normalize_sentence_key(sentence)
+                if key and key not in seen:
+                    seen.add(key)
+                    kept.append(sentence)
+            if kept:
+                blocks_out.append(f"{header}\n{_join_sentences(kept)}")
+            continue
+        kept = []
+        for sentence in _split_sentences(block):
+            key = _normalize_sentence_key(sentence)
+            if key and key not in seen:
+                seen.add(key)
+                kept.append(sentence)
+        if kept:
+            blocks_out.append(_join_sentences(kept))
+    return "\n\n".join(blocks_out)
+
+
+def _trim_substack_to_max_words(text: str, max_words: int) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    blocks = text.split("\n\n")
+    while blocks and len(" ".join(blocks).split()) > max_words:
+        blocks.pop()
+    trimmed = "\n\n".join(blocks).strip()
+    if trimmed:
+        return trimmed
+    return " ".join(words[:max_words]).rstrip(",;") + "."
+
+
+def _parse_substack_sections(text: str) -> dict[str, str]:
+    header_to_key = {
+        "Thesis": "thesis",
+        "What changed": "what_changed",
+        "Why it matters": "why_it_matters",
+        "Second-order effects": "second_order_effects",
+        "What to watch": "what_to_watch",
+        "Bottom line": "bottom_line",
+    }
+    sections: dict[str, str] = {}
+    for block in text.split("\n\n"):
+        if not block.strip():
+            continue
+        lines = block.split("\n", 1)
+        if len(lines) == 2 and lines[0].strip() in header_to_key:
+            sections[header_to_key[lines[0].strip()]] = lines[1].strip()
+        elif "title" not in sections:
+            sections["title"] = block.strip()
+    return sections
+
+
+def _substack_validation_violations(
+    sections: dict[str, str],
+    rendered: str,
+    *,
+    linkedin: str = "",
+    tweet: str = "",
+) -> list[str]:
+    violations: list[str] = []
+    all_sentences: list[str] = []
+    for key in ("title", "thesis", "what_changed", "why_it_matters", "second_order_effects", "what_to_watch", "bottom_line"):
+        all_sentences.extend(_split_sentences(sections.get(key, "")))
+    keys = [_normalize_sentence_key(s) for s in all_sentences if s]
+    if len(keys) != len(set(keys)):
+        violations.append("repeated sentence")
+
+    lowered = rendered.lower()
+    if any(lowered.count(phrase) > 0 for phrase in _SUBSTACK_FILLER_PHRASES):
+        violations.append("filler padding")
+
+    if re.search(r"what to monitor:\.?\s*$", rendered, re.I | re.M):
+        violations.append("malformed label")
+
+    title_norm = _normalize_sentence_key(sections.get("title", ""))
+    for key in ("thesis", "what_changed", "why_it_matters", "second_order_effects", "what_to_watch", "bottom_line"):
+        body_norm = _normalize_sentence_key(sections.get(key, ""))
+        if body_norm and body_norm == title_norm:
+            violations.append("title repeated without analysis")
+
+    analytical = sum(
+        1
+        for key in ("thesis", "what_changed", "why_it_matters", "second_order_effects", "what_to_watch", "bottom_line")
+        if sections.get(key, "").strip()
+    )
+    if analytical < 3:
+        violations.append("insufficient analytical points")
+
+    if not sections.get("bottom_line", "").strip():
+        violations.append("missing bottom line")
+
+    if "—" in rendered or "–" in rendered:
+        violations.append("em dash")
+
+    combined = " ".join(sections.get(k, "") for k in ("thesis", "what_changed", "why_it_matters", "second_order_effects"))
+    if combined and audit_editorial_quality(combined):
+        violations.append("editorial slop")
+
+    if linkedin:
+        li_keys = {_normalize_sentence_key(s) for s in _split_sentences(linkedin)}
+        body_sentences = _split_sentences(combined)
+        if body_sentences:
+            overlap = sum(1 for s in body_sentences if _normalize_sentence_key(s) in li_keys)
+            if overlap >= max(3, len(body_sentences) - 1):
+                violations.append("stretched linkedin")
+
+    if tweet:
+        tweet_keys = {_normalize_sentence_key(s) for s in _split_sentences(tweet)}
+        body_sentences = _split_sentences(combined)
+        if body_sentences and all(_normalize_sentence_key(s) in tweet_keys for s in body_sentences[:2]):
+            violations.append("stretched tweet")
+
+    return violations
+
+
+def _finalize_substack_copy(sections: dict[str, str], *, max_words: int) -> str:
+    sections = _dedupe_substack_sections(sections)
+    text = _render_substack_post(sections)
+    text = _sanitize_substack_copy(text)
+    text = _dedupe_substack_text(text)
+    text = _trim_substack_to_max_words(text, max_words)
+    return text
+
+
 def produce_final_substack(
     signal: dict[str, Any],
     sources: list[dict[str, Any]],
 ) -> FinalCopy:
-    primary_title = str(signal.get("title") or "")
-    title = str(signal.get("title") or "Signal update").strip().rstrip(".")
-    thesis = _business_consequence_sentence(signal)
-    verified = _verified_facts(signal)
-    region = str(signal.get("region") or "the region")
-    source_names = ", ".join(dict.fromkeys(str(s.get("name") or "Reporting") for s in sources[:3])) or "Reporting"
+    depth = _substack_source_depth(signal, sources)
+    max_words = _substack_max_words(depth)
 
-    what_changed = verified[0] if verified else title
-    why = _clean_operator_text(str(signal.get("why_hamza_should_care") or "")) or thesis.rstrip(".")
     if _is_hormuz_fee_signal(signal):
-        second_order = (
-            "A formal transit fee would let regional actors shape maritime behavior through pricing and legal control, "
-            "not only through closure or military pressure. Insurers, charterers, and Gulf ports would need to model "
-            "recurring cost exposure rather than episodic disruption."
-        )
-        watch = (
-            "Watch official fee language, insurer notices, port behavior, and whether US objections produce "
-            "diplomatic or commercial pushback."
-        )
-        bottom = "Hormuz risk is shifting from shock pricing toward structural pricing."
+        sections = _build_hormuz_substack_sections(signal, sources)
     else:
-        second_order = (
-            f"The second-order effect is repricing across insurance, routing, and procurement decisions tied to {region}, "
-            "not just the headline itself."
-        )
-        watch = "Watch official statements, corridor behavior, and follow-on reporting in the next scan window."
-        bottom = f"Bottom line: treat this as an operating update with direct exposure for teams tracking {region}."
+        sections = _build_generic_substack_sections(signal, sources)
 
-    sections = [
-        f"{title}\n",
-        f"Thesis\n{thesis}\n",
-        f"What changed\n{what_changed}.\n",
-        f"Why it matters\n{why}\n",
-        f"Second-order effects\n{second_order}\n",
-        f"What to watch\n{watch}\n",
-        f"Bottom line\n{bottom}\n",
-        f"Sources cited in this note: {source_names}.",
-    ]
-    body = "\n".join(sections)
+    text = _finalize_substack_copy(sections, max_words=max_words)
+    parsed = _parse_substack_sections(text)
+    violations = _substack_validation_violations(parsed, text)
+    if violations:
+        sections = _build_minimal_substack_sections(signal)
+        text = _finalize_substack_copy(sections, max_words=max_words)
+        parsed = _parse_substack_sections(text)
 
-    word_count = len(body.split())
-    if word_count < 500:
-        body += (
-            "\n\nFor operators, the practical question is whether corridor behavior, insurance terms, "
-            "and procurement plans already reflect the update. Compare the signal against transit data, "
-            "market repricing, and official statements before the next reporting cycle."
-        )
-    while len(body.split()) < 500:
-        body += (
-            " Additional reporting may clarify implementation timing, insurer response, "
-            "and routing adjustments across Gulf-linked trade lanes."
-        )
-        if len(body.split()) >= 520:
-            break
-
-    words = body.split()
-    if len(words) > 800:
-        body = " ".join(words[:800]).rstrip(",;") + "."
-
-    text, _ = _prepare_with_repair(
-        body, platform="substack", format_type="substack_post", sources=sources, primary_title=primary_title
-    )
-    final = _strip_banned_phrases(text or body)
-    return FinalCopy(text=final, display=final, passed=bool(final), regenerated=False, internal_note="")
+    return FinalCopy(text=text, display=text, passed=bool(text), regenerated=bool(violations), internal_note="")
 
 
 def _normalize_suggested_format(fmt: str) -> str:
