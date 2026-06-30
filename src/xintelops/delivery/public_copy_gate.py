@@ -413,16 +413,30 @@ def validate_editorial_quality(
     }
 
 
-def format_operator_block_reason(violation: str, *, format_label: str = "Thread") -> str:
+def format_operator_block_reason(
+    violation: str,
+    *,
+    format_label: str = "Thread",
+    selected_signal: dict[str, Any] | None = None,
+) -> str:
     """Convert internal validation fragments into operator-readable block reasons."""
     v = str(violation or "").strip()
     lower = v.lower()
-    if "pakistan/afghanistan" in lower or "pakistan" in lower and "us-iran" in lower:
-        return f"{format_label} blocked because it referenced Pakistan/Afghanistan while the selected signal is US/Iran."
+    signal_label = _selected_signal_topic_label(selected_signal)
+    if "pakistan/afghanistan" in lower or (
+        "pakistan" in lower and ("selected signal is" in lower or "us-iran" in lower)
+    ):
+        return (
+            f"{format_label} blocked because it referenced Pakistan/Afghanistan "
+            f"while the selected signal is {signal_label}."
+        )
     if "different signal topic" in lower:
         return f"{format_label} blocked because it referenced a different signal topic."
     if "foreign actors" in lower or "not in selected signal" in lower:
-        return f"{format_label} blocked because it referenced actors or locations outside the selected signal."
+        return (
+            f"{format_label} blocked because it referenced actors or locations "
+            f"outside the selected signal ({signal_label})."
+        )
     if "comma splice" in lower:
         return f"{format_label} blocked because the copy contained a comma splice."
     if "weak phrase" in lower or "generated phrasing" in lower or "vague phrasing" in lower:
@@ -430,6 +444,27 @@ def format_operator_block_reason(violation: str, *, format_label: str = "Thread"
     if v:
         return f"{format_label} blocked because {v[0].lower() + v[1:] if len(v) > 1 else v.lower()}."
     return f"{format_label} blocked because final copy quality failed."
+
+
+def _selected_signal_topic_label(signal: dict[str, Any] | None) -> str:
+    """Human-readable topic label from the selected signal's actors or region."""
+    if not signal:
+        return "the selected signal"
+    actors = signal.get("actors") or signal.get("entities") or []
+    if isinstance(actors, str):
+        actors = [part.strip() for part in actors.split(",") if part.strip()]
+    actors = [str(actor).strip() for actor in actors if str(actor).strip()]
+    if len(actors) >= 2:
+        return f"{actors[0]}/{actors[1]}"
+    if len(actors) == 1:
+        return actors[0]
+    region = str(signal.get("region") or "").strip()
+    if region:
+        return region
+    title = str(signal.get("title") or "").strip().rstrip(".")
+    if title:
+        return title[:60] + ("..." if len(title) > 60 else "")
+    return "the selected signal"
 
 
 def sanitize_visible_text(text: str) -> str:
@@ -543,7 +578,9 @@ def _foreign_topic_violations(
     )
     copy_is_south_asia = any(m in copy_lower for m in ("pakistan", "afghanistan", "durand", "islamabad", "kabul"))
     if selected_is_us_iran and copy_is_south_asia and not any(m in selected_title_lower for m in ("pakistan", "afghanistan")):
-        violations.append("copy describes Pakistan/Afghanistan but selected signal is US-Iran")
+        violations.append(
+            f"copy describes Pakistan/Afghanistan but selected signal is {_selected_signal_topic_label(selected_signal)}"
+        )
 
     geo_hits = {t for t in _anchor_hits(body, selected_anchors) if t in _STRONG_GEO_ENTITIES}
     for other in other_signals or []:
@@ -951,6 +988,47 @@ def get_verified_signals(result: dict[str, Any]) -> list[dict[str, Any]]:
     return verified if verified else signals
 
 
+_MINIMAL_CONSEQUENCE_SKIP = re.compile(
+    r"why_this|xintelops|operator|score|the signal|watch next|bottom line|if you|you're late|"
+    r"dominant headline|prior scans|monitor only|repost|already covered",
+    re.I,
+)
+
+
+def _minimal_consequence_sentence(
+    signal: dict[str, Any],
+    *,
+    title: str = "",
+    verified: list[str] | None = None,
+) -> str:
+    """Build the second minimal-tweet sentence from the selected signal's direct consequence."""
+    verified = verified or []
+    existing = title.lower()
+
+    for field in ("why_hamza_should_care", "summary"):
+        text = str(signal.get(field) or "").strip()
+        if not text or _MINIMAL_CONSEQUENCE_SKIP.search(text):
+            continue
+        if audit_editorial_quality(text):
+            continue
+        normalized = text.rstrip(".!?").lower()
+        if normalized and normalized in existing:
+            continue
+        return text if text.endswith((".", "!", "?")) else f"{text}."
+
+    for fact in verified[1:]:
+        clean = fact.strip().rstrip(".")
+        if clean and clean.lower() not in existing:
+            return f"{clean}."
+
+    for fact in verified:
+        clean = fact.strip().rstrip(".")
+        if clean and clean.lower() not in existing:
+            return f"{clean}."
+
+    return "Some details remain unclear until follow-on reporting confirms the timeline."
+
+
 def build_minimal_verified_single_tweet(
     signal: dict[str, Any],
     source_package: list[dict[str, Any]] | None = None,
@@ -958,19 +1036,6 @@ def build_minimal_verified_single_tweet(
     """Deterministic minimal single tweet from structured facts only."""
     source_package = source_package or []
     title = str(signal.get("title") or "").strip().rstrip(".")
-    title_lower = title.lower()
-    region = str(signal.get("region") or "").strip()
-
-    if (
-        "iran" in title_lower
-        and ("us" in title_lower or "u.s." in title_lower or "washington" in title_lower or "stand down" in title_lower)
-    ):
-        text = (
-            "US and Iran say they will stand down after weekend strikes. "
-            "The issue now is whether the pause lowers Hormuz shipping risk, Gulf basing pressure, "
-            "and insurance pricing before the next round of Doha talks."
-        )
-        return text
 
     verified: list[str] = []
     for item in signal.get("verified_facts") or []:
@@ -986,29 +1051,10 @@ def build_minimal_verified_single_tweet(
     elif verified:
         parts.append(f"{verified[0]}.")
 
-    if verified and verified[0].lower() not in (title or "").lower():
-        parts.append(f"{verified[0]}.")
-
-    implication = str(
-        signal.get("summary") or signal.get("why_hamza_should_care") or ""
-    ).strip()
-    if implication and re.search(
-        r"why_this|xintelops|operator|score|the signal|watch next|bottom line|if you|you're late",
-        implication,
-        re.I,
-    ):
-        implication = ""
-    if implication and not audit_editorial_quality(implication):
-        if implication.lower() not in " ".join(parts).lower():
-            parts.append(implication if implication.endswith(".") else f"{implication}.")
-
-    if region.lower() in {"gulf", "middle east"} or "hormuz" in title_lower:
-        parts.append(
-            "The issue now is whether the pause lowers shipping risk, Gulf basing pressure, "
-            "and insurance pricing before follow-on diplomacy."
-        )
-    else:
-        parts.append("Some details remain unclear until follow-on reporting confirms the timeline.")
+    consequence = _minimal_consequence_sentence(signal, title=title, verified=verified)
+    existing = " ".join(parts).lower()
+    if consequence.lower().rstrip(".!?") not in existing:
+        parts.append(consequence)
 
     text = " ".join(parts).strip()
     if not text and source_package:
