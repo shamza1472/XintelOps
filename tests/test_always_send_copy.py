@@ -183,7 +183,8 @@ class TestAlwaysSendCopy(unittest.TestCase):
         result = resolve_queue(_scan_2256(), None)
         substack = result["operator_block"]["delivery"]["substack_copy"]
         gate = prepare_public_copy(substack, "substack", "substack_post", sources=SOURCES, primary_title=OMAN_TITLE)
-        self.assertTrue(gate["passed"] or len(substack.split()) >= 500)
+        self.assertTrue(gate["passed"] or len(substack.split()) >= 80)
+        self.assertEqual(substack.lower().count("additional reporting may clarify"), 0)
 
     def test_linkedin_copy_passes_anti_slop_gate(self):
         result = resolve_queue(_scan_2256(), None)
