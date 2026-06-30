@@ -360,12 +360,26 @@ def resolve_queue(
     thread_meta = dual_copy.get("thread") or {}
     delivery = dual_copy.get("delivery") or {}
 
+    canonical_delivery = {
+        "x_tweet": delivery.get("x_tweet") or delivery.get("single_copy") or single_meta.get("display") or "",
+        "x_thread": delivery.get("x_thread") or delivery.get("thread_tweets") or thread_meta.get("tweets") or [],
+        "x_thread_display": delivery.get("x_thread_display") or delivery.get("thread_copy") or thread_meta.get("display") or "",
+        "linkedin": delivery.get("linkedin") or delivery.get("linkedin_copy") or "",
+        "substack": delivery.get("substack") or delivery.get("substack_copy") or "",
+        "suggested_format": delivery.get("suggested_format") or dual_copy.get("recommended_format") or "",
+        "suggested_format_reason": delivery.get("suggested_format_reason") or dual_copy.get("format_reason") or "",
+        "also_included": delivery.get("also_included") or "",
+        "youtube_note": delivery.get("youtube_note") or "YouTube: Not active yet. Video scripts will be added soon.",
+        "linkedin_cadence_note": delivery.get("linkedin_cadence_note") or "",
+        "linkedin_cadence_action": delivery.get("linkedin_cadence_action") or "",
+    }
+
     x_section = {
-        "action": effective_action,
         "requested_action": post_action,
         "format": _format_label(post_action) if not x_blocked else "BLOCKED",
-        "recommended_format": dual_copy.get("recommended_format", ""),
-        "format_reason": dual_copy.get("format_reason", ""),
+        "suggested_format": canonical_delivery.get("suggested_format") or dual_copy.get("recommended_format", ""),
+        "suggested_format_reason": canonical_delivery.get("suggested_format_reason") or dual_copy.get("format_reason", ""),
+        "also_included": canonical_delivery.get("also_included") or "",
         "post_now": post_title,
         "deadline": format_pkt(active_deadline),
         "expires": format_pkt(active_expires),
@@ -373,11 +387,11 @@ def resolve_queue(
         "source_package": flat_sources,
         "source_buckets": source_buckets,
         "draft": draft,
-        "single_copy": delivery.get("single_copy") or single_meta.get("display") or "",
-        "single_blocked": False if delivery.get("single_copy") else not single_meta.get("passed"),
+        "single_copy": canonical_delivery["x_tweet"],
+        "single_blocked": False if canonical_delivery["x_tweet"] else not single_meta.get("passed"),
         "single_block_reason": "",
-        "thread_copy": delivery.get("thread_copy") or thread_meta.get("display") or "",
-        "thread_blocked": False if delivery.get("thread_copy") else not thread_meta.get("passed"),
+        "thread_copy": canonical_delivery["x_thread_display"],
+        "thread_blocked": False if canonical_delivery["x_thread_display"] else not thread_meta.get("passed"),
         "thread_block_reason": "",
         "copy_blocked": x_blocked,
         "no_verified_signal": not dual_copy.get("has_verified_signals", False) if dual_copy else False,
@@ -393,26 +407,30 @@ def resolve_queue(
     }
 
     delivery_section = {
-        "linkedin_copy": delivery.get("linkedin_copy") or (result.get("linkedin_block") or {}).get("copy_this") or "",
-        "substack_copy": delivery.get("substack_copy") or "",
-        "suggested_format": delivery.get("suggested_format") or dual_copy.get("recommended_format") or "",
-        "suggested_format_reason": delivery.get("suggested_format_reason") or dual_copy.get("format_reason") or "",
-        "linkedin_cadence_note": delivery.get("linkedin_cadence_note") or "",
-        "linkedin_cadence_action": delivery.get("linkedin_cadence_action") or "",
-        "youtube_note": delivery.get("youtube_note") or "YouTube: Not active yet. Video scripts will be added soon.",
+        **canonical_delivery,
+        # Legacy aliases for callers/tests
+        "single_copy": canonical_delivery["x_tweet"],
+        "thread_copy": canonical_delivery["x_thread_display"],
+        "thread_tweets": canonical_delivery["x_thread"],
+        "linkedin_copy": canonical_delivery["linkedin"],
+        "substack_copy": canonical_delivery["substack"],
     }
 
-    if delivery_section.get("linkedin_copy"):
+    if delivery_section.get("linkedin"):
         li_block = dict(result.get("linkedin_block") or {})
-        li_block["copy_this"] = li_block.get("copy_this") or delivery_section["linkedin_copy"]
-        li_block["article_post"] = li_block.get("article_post") or delivery_section["linkedin_copy"]
+        li_block["copy_this"] = delivery_section["linkedin"]
+        li_block["article_post"] = delivery_section["linkedin"]
         li_block.setdefault("copy_blocked", False)
         result["linkedin_block"] = li_block
     elif not result.get("linkedin_block"):
         from xintelops.delivery.linkedin_synthesis import build_linkedin_block
 
         result["linkedin_block"] = build_linkedin_block(result, [])
-        delivery_section["linkedin_copy"] = result["linkedin_block"].get("copy_this") or ""
+        linkedin_text = result["linkedin_block"].get("copy_this") or ""
+        delivery_section["linkedin"] = linkedin_text
+        delivery_section["linkedin_copy"] = linkedin_text
+
+    result["delivery"] = delivery_section
 
     operator_block = {
         "x": x_section,

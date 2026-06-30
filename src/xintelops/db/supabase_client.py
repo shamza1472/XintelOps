@@ -408,7 +408,10 @@ class SupabaseClient:
             "active_now_deadline": queue.get("active_now_deadline"),
             "active_now_expires_at": queue.get("active_now_expires_at"),
             "active_now_reason": queue.get("active_now_reason"),
-            "active_now_source_package": queue.get("active_now_source_package"),
+            "active_now_source_package": {
+                "sources": queue.get("active_now_source_package") or [],
+                "delivery": result.get("delivery") or {},
+            },
             "later_signal": queue.get("later_signal"),
             "later_format": queue.get("later_format"),
             "later_draft": queue.get("later_draft"),

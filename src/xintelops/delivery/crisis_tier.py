@@ -5,6 +5,43 @@ from typing import Any
 CRISIS_TIERS = frozenset({"ROUTINE", "MONITOR", "PRIORITY", "LIVE_EVENT", "CRISIS", "FLASHPOINT"})
 POSTING_TIERS = frozenset({"CRISIS", "FLASHPOINT"})
 
+_STRUCTURAL_CORRIDOR_MARKERS = (
+    "fee plan",
+    "transit fee",
+    "transit-fee",
+    "fee mechanism",
+    "insurance",
+    "pricing chokepoint",
+    "transit payment",
+)
+_KINETIC_MARKERS = (
+    "strike",
+    "strikes",
+    "attack",
+    "missile",
+    "kinetic",
+    "war",
+    "ceasefire broken",
+    "escalation",
+    "hit ",
+    "drone",
+)
+
+
+def _is_structural_corridor_signal(signal: dict[str, Any]) -> bool:
+    if signal.get("crisis_flag"):
+        return False
+    title = str(signal.get("title") or "").lower()
+    domain = str(signal.get("domain") or "").lower()
+    if any(marker in title for marker in _STRUCTURAL_CORRIDOR_MARKERS):
+        return True
+    return domain in {"maritime", "shipping", "insurance"} and "hormuz" in title
+
+
+def _has_kinetic_escalation(signal: dict[str, Any]) -> bool:
+    title = str(signal.get("title") or "").lower()
+    return any(marker in title for marker in _KINETIC_MARKERS)
+
 
 def classify_signal_tier(signal: dict[str, Any], *, material_change: bool = True) -> str:
     """Delivery-layer tier label — does not alter ranking weights."""
@@ -32,6 +69,8 @@ def classify_signal_tier(signal: dict[str, Any], *, material_change: bool = True
         and material_change
     )
     if is_flashpoint:
+        if _is_structural_corridor_signal(signal) and not _has_kinetic_escalation(signal):
+            return "LIVE_EVENT"
         return "FLASHPOINT"
 
     is_crisis = (
@@ -44,6 +83,8 @@ def classify_signal_tier(signal: dict[str, Any], *, material_change: bool = True
         and freshness in {"BREAKING", "LIVE", "DEVELOPING"}
     )
     if is_crisis:
+        if _is_structural_corridor_signal(signal) and not _has_kinetic_escalation(signal):
+            return "LIVE_EVENT"
         return "CRISIS"
 
     if live >= 8 or momentum >= 8:
@@ -56,10 +97,13 @@ def classify_signal_tier(signal: dict[str, Any], *, material_change: bool = True
 
 
 def classify_scan_tier(result: dict[str, Any]) -> dict[str, Any]:
-    """Scan-level tier from immediate post and ranked signals."""
+    """Scan-level tier from selected post signal and ranked signals."""
+    post_decision = (result.get("operator_decisions") or {}).get("one_signal_to_post") or {}
     immediate_title = (
-        (result.get("operator_decisions") or {}).get("best_immediate_post") or {}
-    ).get("title") or (result.get("top_signal") or {}).get("title")
+        post_decision.get("title")
+        or ((result.get("operator_decisions") or {}).get("best_immediate_post") or {}).get("title")
+        or (result.get("top_signal") or {}).get("title")
+    )
 
     tiers: list[str] = []
     tier_by_title: dict[str, str] = {}
@@ -71,14 +115,15 @@ def classify_scan_tier(result: dict[str, Any]) -> dict[str, Any]:
         tier_by_title[str(sig.get("title") or "")] = tier
         tiers.append(tier)
 
-    scan_tier = "ROUTINE"
+    scan_max_tier = "ROUTINE"
     priority_order = ["FLASHPOINT", "CRISIS", "LIVE_EVENT", "PRIORITY", "MONITOR", "ROUTINE"]
     for t in priority_order:
         if t in tiers:
-            scan_tier = t
+            scan_max_tier = t
             break
 
     immediate_tier = tier_by_title.get(str(immediate_title or ""), "ROUTINE")
+    scan_tier = immediate_tier
     immediate_sig = next(
         (s for s in result.get("ranked_signals") or [] if str(s.get("title") or "") == str(immediate_title or "")),
         {},
@@ -90,6 +135,7 @@ def classify_scan_tier(result: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "scan_tier": scan_tier,
+        "scan_max_tier": scan_max_tier,
         "immediate_tier": immediate_tier,
         "posting_exception": posting_exception,
         "crisis_detected": posting_exception,

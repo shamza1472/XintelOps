@@ -150,10 +150,10 @@ class TestScan0036Regression(unittest.TestCase):
 
     def test_email_recommends_single_when_thread_blocked(self):
         result = resolve_queue(_scan_0036(), None)
-        x = result["operator_block"]["x"]
-        self.assertIn(x.get("recommended_format"), {"SINGLE TWEET", "THREAD"})
+        delivery = result["operator_block"]["delivery"]
+        self.assertIn(delivery.get("suggested_format"), {"SINGLE TWEET", "THREAD"})
         html = build_email_html(result)
-        self.assertIn("Recommended format:", html)
+        self.assertIn("Suggested format:", html)
         self.assertIn("COPY THIS - SINGLE TWEET", html)
         self.assertIn("COPY THIS - THREAD", html)
 

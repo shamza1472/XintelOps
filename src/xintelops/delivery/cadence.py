@@ -124,7 +124,7 @@ def enrich_result(
     tier_meta = classify_scan_tier(result)
     result["crisis_tier_meta"] = tier_meta
     result["crisis_detected"] = tier_meta.get("crisis_detected", False)
-    result["scan_tier"] = tier_meta.get("scan_tier", "ROUTINE")
+    result["scan_tier"] = tier_meta.get("immediate_tier") or tier_meta.get("scan_tier", "ROUTINE")
     result["top_signals_display"] = format_top_signals_block(result)
 
     if not result.get("linkedin_block"):
